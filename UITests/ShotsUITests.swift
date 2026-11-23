@@ -425,9 +425,11 @@ final class ShotsUITests: XCTestCase {
     func testToolLatency() {
         _ = http("_online")
         var out: [String: Any] = [:]
-        let variants = (ProcessInfo.processInfo.environment["B2_VARIANTS"] ?? "base,a,b,c,d,e,p").split(separator: ",").map(String.init)
-        for v in variants {
-            out[v] = latencyRun(v)
+        // 变体:方式。方式 stroke = 写完一笔马上点；idlefirst = 开草稿纸后先不写字点一下，再写字点；late = 开草稿纸后等 15 秒再写字点
+        let runs = (ProcessInfo.processInfo.environment["B2_VARIANTS"] ?? "base:stroke,base:idlefirst,base:late,a:stroke,a:late").split(separator: ",").map(String.init)
+        for r in runs {
+            let p = r.split(separator: ":").map(String.init)
+            out[r] = latencyRun(p[0], mode: p.count > 1 ? p[1] : "stroke")
         }
         if let d = try? JSONSerialization.data(withJSONObject: out, options: [.prettyPrinted, .sortedKeys]) {
             try? d.write(to: outDir.appendingPathComponent("latency.json"))
@@ -435,8 +437,8 @@ final class ShotsUITests: XCTestCase {
         print("LATENCY \(out)")
     }
 
-    private func latencyRun(_ variant: String) -> [String: Any] {
-        let name = "latency-\(variant)"
+    private func latencyRun(_ variant: String, mode: String) -> [String: Any] {
+        let name = "latency-\(variant)-\(mode)"
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         let readyURL = outDir.appendingPathComponent(name + ".ready")
@@ -468,6 +470,11 @@ final class ShotsUITests: XCTestCase {
         func lastTap() -> [String: Any] { native()["lastTap"] as? [String: Any] ?? [:] }
         var after: [Int] = [], idle: [Int] = [], detail: [[String: Any]] = []
         guard let er = btn("eraser"), er.count == 4, let pn = btn("pen"), pn.count == 4 else { app.terminate(); return ["error": "no toolbar"] }
+        var first: [String: Any] = [:]
+        if mode == "idlefirst" {   // 开草稿纸以后第一下就点工具条（前面没写过字）
+            tapAt(pn); Thread.sleep(forTimeInterval: 3.0); first = lastTap()
+        }
+        if mode == "late" { Thread.sleep(forTimeInterval: 15) }
         for i in 0..<3 {
             let y = H * 0.3 + Double(i) * 80
             // 写一笔，抬手后不等，马上点工具条
@@ -481,9 +488,10 @@ final class ShotsUITests: XCTestCase {
             Thread.sleep(forTimeInterval: 3.0)
             let t2 = lastTap(); idle.append(t2["liftToAct"] as? Int ?? -1); detail.append(["kind": "idle", "tap": t2])
         }
-        print("LATENCY \(variant) after-stroke=\(after) idle=\(idle)")
+        let perf = web()["perf"] ?? NSNull()
+        print("LATENCY \(variant):\(mode) first=\(first["liftToAct"] ?? "-") after-stroke=\(after) idle=\(idle) perf=\(perf)")
         app.terminate()
-        return ["afterStroke": after, "idle": idle, "detail": detail]
+        return ["first": first, "afterStroke": after, "idle": idle, "detail": detail, "perf": perf]
     }
 
     func testShots() {

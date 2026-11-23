@@ -226,7 +226,13 @@ final class ShellViewController: UIViewController {
             }
         }
         NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.ink?.saveNow()
+            // 进后台：要一点后台时间把笔迹存完
+            var task = UIBackgroundTaskIdentifier.invalid
+            task = UIApplication.shared.beginBackgroundTask { UIApplication.shared.endBackgroundTask(task); task = .invalid }
+            self?.ink?.saveNow { if task != .invalid { UIApplication.shared.endBackgroundTask(task); task = .invalid } }
+        }
+        NotificationCenter.default.addObserver(forName: UIApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.ink?.saveNowAndWait()   // 要被杀掉：存盘队列同步跑完
         }
         proxy.onToast = { [weak self] text in self?.showToast(text) }
 
@@ -885,7 +891,7 @@ extension ShellViewController {
         var cl=q('[data-a="clear"]'),su=q('.dsure');
         return JSON.stringify({id:d&&d.D.id,open:d&&d.D.open,tool:d&&d.ui.tool,color:d&&d.ui.color,finger:d&&!!d.ui.finger,side:d&&d.ui.side,
         V:d&&[d.V.x,d.V.y,d.V.z],W:innerWidth,H:innerHeight,q:window.Board2&&Board2.id,opt:r(o),clicks:window.__b2clicks,
-        v2:d&&d.doc?d.doc.s.length:-1,lastClicks:window.__b2lc,aboveOn:['#fbp','#drawer','#sheet','#weak','#akPg','#akHere','.toast'].filter(function(k){var e=document.querySelector(k);return e&&e.classList.contains('on');}),stem:r(document.getElementById('stem')),dtoolShown:!!(t&&t.offsetWidth),dtool:r(t),draftBtn:r(document.getElementById('draftBtn')),
+        v2:d&&d.doc?d.doc.s.length:-1,lastClicks:window.__b2lc,perf:window.__b2perf?{gaps:__b2perf.gaps,slow:__b2perf.slow}:null,aboveOn:['#fbp','#drawer','#sheet','#weak','#akPg','#akHere','.toast'].filter(function(k){var e=document.querySelector(k);return e&&e.classList.contains('on');}),stem:r(document.getElementById('stem')),dtoolShown:!!(t&&t.offsetWidth),dtool:r(t),draftBtn:r(document.getElementById('draftBtn')),
         clearSure:!!(cl&&cl.classList.contains('sure')),sureShown:!!(su&&su.classList.contains('on')),undoDisabled:!!(q('[data-a="undo"]')||{}).disabled,
         btn:{grip:r(q('[data-a="grip"]')),pen:r(q('[data-a="pen"]')),eraser:r(q('[data-a="eraser"]')),color:r(q('[data-a="color"]')),undo:r(q('[data-a="undo"]')),
         clear:r(cl),more:r(q('[data-a="more"]')),close:r(q('[data-a="close"]')),red:r(q('.dpal [data-c="red"]')),finger:r(q('[data-a="finger"]'))},

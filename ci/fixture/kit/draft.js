@@ -198,6 +198,13 @@
     else if (btn.parentNode !== document.body) { document.body.appendChild(btn); Object.assign(btn.style, { position: 'fixed', right: '16px', top: '12px' }); }
   }
   setInterval(() => { layout(); watchId(); sync(); }, 400);
+  /* 诊断（App 里）：网页主线程有没有被卡住——每 50 毫秒打一次拍，两拍之间隔了 250 毫秒以上就记下"从几点起卡了多久"；
+     草稿纸自己的几个函数（重画、报状态）超过 30 毫秒也记一笔。App 的状态探针读 window.__b2perf。 */
+  if (NI()) {
+    const P = window.__b2perf = { gaps: [], slow: [] }; let beat = performance.now();
+    setInterval(() => { const n = performance.now(); if (n - beat > 250) { P.gaps.push(Math.round(performance.timeOrigin + beat) + '+' + Math.round(n - beat)); if (P.gaps.length > 12) P.gaps.shift(); } beat = n; }, 50);
+    P.time = (name, f) => function () { const t0 = performance.now(); try { return f.apply(this, arguments); } finally { const d = performance.now() - t0; if (d > 30) { P.slow.push(name + '@' + Math.round(performance.timeOrigin + t0) + '+' + Math.round(d)); if (P.slow.length > 12) P.slow.shift(); } } };
+  }
   (function hookId() {   // 原生笔迹：Board2.id / Board2.mock 一被改就立刻 watchId（不然换题后最长 0.4 秒内写的字会记到上一题）
     const S = B(); if (!NI() || !S || S.__b2DraftHook) return; S.__b2DraftHook = 1;
     ['id', 'mock'].forEach((k) => {
