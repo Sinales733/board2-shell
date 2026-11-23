@@ -1,0 +1,192 @@
+/* 气泡点开的面板（kit/ask.js）：问答 / 课有问题两个分页。颜色只用 shell.css 的变量（暖黑底、米白字、橙 = 正在用的东西、蓝 = 出处和索引）。
+   横屏：靠右一栏，宽 --fbw（26%–40%，把手左右拖），开着时把画面往左挤（.app.akopen 加右内边距）。
+   竖屏：从下方升起，高 --fbh（28%–88%，把手上下拖）；新讲法的题盖在讲稿上，别的题把画面往上挤。
+   --kb：软键盘挡住的高度（shell.js 的 kbFit），面板下沿抬到键盘上面。 */
+#btnFb.off { outline: 1.5px dashed var(--line2); outline-offset: -3px; }   /* 监听没在线：淡淡的虚线圈 */
+#btnFb.open { opacity: 1; color: var(--acc); }
+.fbp [hidden] { display: none !important; }
+.fbp.kbup .fbnote, .fbp.kbup #rds { display: none; }
+.fbp { position: fixed; z-index: 55; display: flex; flex-direction: column; min-height: 0; background: var(--surface); border: 1px solid var(--line2); box-shadow: 0 10px 40px rgba(0, 0, 0, .5);
+  top: 0; right: 0; bottom: var(--kb, 0px); width: var(--fbw, 34vw); max-width: 40vw; min-width: 300px; border-width: 0 0 0 1px; padding: 8px 12px 10px 18px;
+  transform: translateX(104%); visibility: hidden; transition: transform var(--m-big) var(--ease), visibility 0s var(--m-big), bottom var(--m-mid), opacity var(--t-fast); }
+.fbp.on { transform: none; visibility: visible; }
+.fbp.sizing { transition: none; }
+.fbp.closing { opacity: .55; }
+.app { transition: padding var(--m-big) var(--ease); }   /* 和面板滑进滑出同一档、同一条缓动：画面、进度条、◀ ▶、右上角那一组按钮跟着面板同一帧起步、同一帧到位 */
+.app.akopen { padding-right: calc(var(--fbw, 34vw) + env(safe-area-inset-right, 0px)); }
+.app.akopen .main { grid-template-columns: minmax(0, 1fr); }   /* 画面被挤窄时进度条跟着缩，▶ 不钻到面板底下 */
+.app.akopen .bar .seg:not(.on) .nm { visibility: hidden; }        /* 挤窄了段名会叠在一起：只留当前这一段的名字 */
+.fbgrab { position: absolute; left: 0; top: 0; bottom: 0; width: 16px; display: grid; place-items: center; cursor: ew-resize; touch-action: none; }
+.fbgrab i { width: 4px; height: 44px; border-radius: 2px; background: var(--line2); }
+.fbgrab:active i { background: var(--muted); }
+/* 放大阅读：横屏加宽到画面那一栏大半（盖在画面上，左栏照样露着，画面不再往左挤）；竖屏升到接近满屏 */
+.fbp.wide { width: min(66vw, 820px); max-width: none; }
+.fbp.on { transition: transform var(--m-big) var(--ease), visibility 0s, bottom var(--m-mid), width var(--m-big) var(--ease), height var(--m-big) var(--ease), opacity var(--t-fast); }
+.fbp.on.sizing { transition: none; }
+/* 横屏放大时面板盖住画面右上角：草稿纸按钮（kit/draft.js）在面板下面一层，和气泡一样被盖住，不用另外藏（2026-11-22 以前是一下藏掉） */
+@media (orientation: portrait) {
+  .fbp.wide { width: auto; height: calc(100dvh - var(--kb, 0px) - 56px - env(safe-area-inset-top, 0px)); }
+  .fbp { top: auto; left: 0; width: auto; max-width: none; min-width: 0; height: var(--fbh, 50dvh); max-height: calc(100dvh - var(--kb, 0px) - 8px); border-width: 1px 0 0; border-radius: 18px 18px 0 0; padding: 18px 14px 10px; transform: translateY(104%); }
+  .app.akopen { padding-right: env(safe-area-inset-right, 0px); }
+  .app.akopen:not(.xin) { padding-bottom: calc(var(--fbh, 50dvh) + env(safe-area-inset-bottom, 0px)); }
+  .fbgrab { left: 0; right: 0; top: 0; bottom: auto; width: auto; height: 20px; cursor: ns-resize; }
+  .fbgrab i { width: 48px; height: 4px; }
+}
+.app.quiet ~ .fbp, .app.quiet .fbp { display: none; }
+
+.fbhead { flex: none; display: flex; align-items: center; gap: 8px; }
+.fbtabs { flex: 1; min-width: 0; display: flex; gap: 2px; height: 40px; padding: 2px; border-radius: 12px; border: 1px solid var(--line2); background: var(--bg); }
+.fbtabs button { flex: 1; min-width: 0; border-radius: 9px; font: 700 15px var(--sans); color: var(--muted); white-space: nowrap; transition: background var(--t-mid), color var(--t-mid); }
+.fbtabs button.on { background: var(--surface2); color: var(--ink); }
+#fbMin { width: 44px; height: 44px; color: var(--muted); }
+.fbp .rd span { color: var(--muted); }   /* 面板里重讲那几行的题号：深底上提到 4.5 以上 */
+.fbnote { flex: none; display: flex; flex-direction: column; gap: 4px; }
+.fbnote:not(:empty) { margin-top: 8px; }
+.fbnote button { min-height: 40px; padding: 6px 12px; border-radius: 10px; border-left: 3px solid var(--acc); background: var(--acc-soft); color: var(--ink2); text-align: left; font-size: 15px; }
+/* 问答分页顶上那一行提醒：最多一行、很矮，不和回答抢地方；“课有问题”分页里不显示（那边有 #rpNote 列全） */
+#fbNote:not(:empty) { margin-top: 6px; }
+#fbNote button { display: flex; align-items: center; gap: 6px; min-height: 34px; padding: 3px 10px; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#fbNote button i { margin-left: auto; font-style: normal; color: var(--muted); }
+.fbp[data-tab=rep] #fbNote { display: none; }
+.rpnote:not(:empty) { margin: 0 0 6px; }
+.rpredo { margin-top: 4px; }
+.rpredo:has(.rds:empty) { display: none; }
+#fbWide { width: 44px; height: 44px; color: var(--muted); }
+#fbWide .w2, #fbWide.on .w1 { display: none; }
+#fbWide.on .w2 { display: inline; }
+#fbWide.on { color: var(--acc); }
+#fbWide svg { fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.fbpane { display: none; flex: 1 1 auto; min-height: 0; flex-direction: column; margin-top: 8px; }
+.fbp[data-tab=ask] .akpane, .fbp[data-tab=rep] .rppane { display: flex; }
+
+/* ---- 问答 ---- */
+.aklog { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; touch-action: pan-y; margin: 0 -6px; padding: 2px 6px 8px; scrollbar-width: thin; scrollbar-color: var(--line2) transparent; user-select: text; -webkit-user-select: text; }
+.akempty { margin: 24px 4px; color: var(--muted); font: 400 15px/1.7 var(--sans); text-align: center; }
+.akgrp { margin-bottom: 10px; border-radius: 12px; }
+.akgrp.flash { animation: akflash 1.4s var(--ease); }
+@keyframes akflash { 0%, 30% { background: var(--acc-soft); } 100% { background: transparent; } }
+.akstep { display: inline-flex; align-items: center; min-height: 40px; margin: 2px 0 4px; padding: 2px 10px; border-radius: 8px; font: 700 13px var(--mono); color: var(--blue); background: rgba(127, 178, 229, .1); }
+.akstep::after { content: '›'; margin-left: 6px; font-size: 15px; }
+.akth { margin: 0 0 8px; padding: 2px 0 2px 10px; border-left: 2px solid var(--line); }
+.akth.cur { border-left-color: var(--acc); }
+.akqt { margin: 4px 0 6px; padding: 6px 10px; border-radius: 8px; border-left: 3px solid var(--acc); background: var(--acc-soft); font: 500 14px/1.6 var(--serif); color: var(--ink2); display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.akturn { margin: 6px 0 14px; }
+.akturn + .akturn { padding-top: 12px; border-top: 1px dashed var(--line2); }
+/* 问：右边一个灰底气泡，字小一号；答：左边整段正文，字大一号、行距宽、段间留白 */
+.akq { margin: 0 0 12px auto; width: fit-content; max-width: 86%; padding: 7px 12px; border-radius: 14px 14px 4px 14px; background: var(--surface2); border: 1px solid var(--line2); color: var(--ink2); font: 400 15px/1.55 var(--sans); white-space: pre-wrap; word-break: break-word; }
+.aka { font: 400 17px/1.8 var(--sans); color: var(--ink); word-break: break-word; overflow-wrap: anywhere; }
+.aka p { margin: 0 0 .8em; }
+.aka > :last-child { margin-bottom: 0; }
+.aka strong { font-weight: 700; color: var(--ink); }
+.aka .katex { font-size: 1.1em; }
+.akli { display: flex; gap: .45em; margin: 0 0 .8em; }
+.akn { flex: none; min-width: 1.5em; font: 700 .95em/1.9 var(--mono); color: var(--acc); }
+.akli > div { flex: 1; min-width: 0; }
+/* 独立公式、代码：单独一块，宽了就在块里横着滑，不撑破面板 */
+.akmath, .akcode, .akcl { margin: .2em 0 .9em; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; touch-action: pan-x pan-y; scrollbar-width: thin; scrollbar-color: var(--line2) transparent; }
+.akmath { padding: 10px 14px; }
+.akmath .katex-display { margin: 0; text-align: left; }
+.akmath .katex-display > .katex { text-align: left; font-size: 1.12em; }
+.akcode, .akcl { padding: 8px 12px; font: 500 14.5px/1.65 var(--mono); color: var(--ink); white-space: pre; }
+.aka .akcode code, .aka .akcl code { font: inherit; padding: 0; background: none; border: 0; white-space: inherit; overflow-wrap: normal; word-break: normal; }
+.akcode, .akcl { overflow-wrap: normal; word-break: normal; }
+.akcl { margin-bottom: .35em; }
+.aka code { font: 500 .88em var(--mono); padding: 1px 5px; border-radius: 5px; background: var(--surface2); color: var(--ink); white-space: pre-wrap; }
+/* 正文里的〔书名 第N页〕：缩成小字，对得上出处的能点 */
+.akref { display: inline; padding: 0; margin: 0 1px; font: 400 .74em var(--sans); color: var(--muted); vertical-align: .1em; white-space: nowrap; background: none; border: 0; }
+button.akref { color: var(--blue); }
+.aka .mxglue .xpunct { font-family: var(--sans); font-size: .76em; font-style: normal; }
+.aka .cjk_fallback { font-family: var(--sans); letter-spacing: .05em; }
+.akraw { color: var(--muted); }
+.akst { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-size: 14px; color: var(--muted); }
+.akst i { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--blue); animation: akpulse 1.1s ease-in-out infinite; }
+.akst.q { color: var(--muted); }
+@keyframes akpulse { 0%, 100% { opacity: .3; } 50% { opacity: 1; } }
+.akfail { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 4px 0; font-size: 14px; color: var(--no); }
+.akretry, .akesc, .aknew, .akcite, .rpa { min-height: 40px; padding: 6px 12px; border-radius: 10px; border: 1.5px solid var(--line2); background: var(--bg); color: var(--ink2); font-size: 14px; line-height: 1.3; text-align: left; transition: transform var(--m-fast), border-color var(--t-mid); }
+.akretry { color: var(--ink); border-color: var(--no); }
+.akcites { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.akcite { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 5px 10px; border-color: rgba(127, 178, 229, .45); color: var(--blue); }
+.akcite b { font-weight: 700; } .akcite small { font: 500 13px var(--mono); color: var(--ink2); }
+.akcite.off { border-style: dashed; border-color: var(--line2); color: var(--muted); }
+.akcite.off small { color: var(--muted); }
+/* 出处收成一行小标签（几条时点了展开 .akcall） */
+.akcites { align-items: center; margin-top: 10px; }
+.akcite.sm { min-height: 34px; padding: 3px 10px; gap: 5px; font-size: 13px; border-width: 1px; max-width: 100%; }
+.akcite.sm b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.akcite.sm small { font-size: 12px; white-space: nowrap; }
+.akcite.sm svg { flex: none; width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.akcite.sm i { font: 700 12px var(--mono); font-style: normal; color: var(--muted); margin-left: 2px; }
+.akcall { display: none; width: 100%; flex-wrap: wrap; gap: 6px; }
+.akcites.open .akcall { display: flex; }
+.akcites.open .akcite.more { border-color: var(--blue); }
+.akfix { margin-top: 10px; padding: 8px 12px; border-radius: 10px; border-left: 3px solid var(--acc); background: var(--acc-soft); font: 400 15px/1.7 var(--sans); color: var(--ink); }
+.akfix b { display: block; margin-bottom: 2px; font-size: 13px; color: var(--acc); }
+.akesc { display: block; margin: 2px 0 4px auto; min-height: 36px; padding: 4px 12px; font-size: 13px; color: var(--muted); border-width: 1px; }   /* 转重讲：缩成右边一个小按钮，不和回答抢眼 */
+.akescd { margin: 2px 0 6px; font-size: 14px; color: var(--muted); }
+.aknew { margin: 2px 0 4px; color: var(--muted); border-style: dashed; }
+.akretry:active, .akesc:active, .aknew:active, .akcite:active, .rpa:active { transform: scale(.96); }
+.akesc:disabled, .rpa:disabled { opacity: .5; }
+
+.akfoot { flex: none; display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px solid var(--line); }
+.akwarn { margin: 0; padding: 4px 2px; font-size: 14px; line-height: 1.5; color: var(--muted); }
+.akqbar { display: none; align-items: center; gap: 6px; padding: 2px 2px 2px 10px; border-radius: 10px; border-left: 3px solid var(--acc); background: var(--acc-soft); }
+.akqbar.on { display: flex; }
+.akqbar span { flex: 1; min-width: 0; font: 500 14px/1.5 var(--serif); color: var(--ink2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.akqbar .ic { width: 40px; height: 40px; }
+.fbin { display: flex; align-items: flex-end; gap: 6px; }
+.fbin textarea { flex: 1; min-width: 0; resize: none; padding: 9px 12px; border-radius: 12px; border: 1px solid var(--line2); background: var(--bg); color: var(--ink); font: 16px/1.5 var(--sans); outline: none; user-select: text; -webkit-user-select: text; -webkit-touch-callout: default; overscroll-behavior: contain; touch-action: auto; }
+.fbin textarea:focus { border-color: var(--muted); }
+.fbin textarea::placeholder { color: var(--faint); }
+#fbSend { flex: none; width: 44px; height: 44px; border-radius: 50%; background: var(--acc); color: var(--on-acc); }
+#fbSend:disabled { opacity: .5; }
+
+/* 讲稿里问过问题的那一段：右上角一个小气泡标记 */
+.xask { position: absolute; top: 4px; right: 2px; width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; color: var(--blue); background: var(--surface); }
+.xask::before { content: ''; position: absolute; inset: -5px; }
+.xask svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linejoin: round; }
+.xp:has(.xask) { padding-right: 34px; }
+
+/* 问这里：长按后冒出来的小按钮 */
+.akhere { position: fixed; z-index: 66; min-height: 44px; padding: 8px 16px; border-radius: 999px; background: var(--acc); color: var(--on-acc); font: 700 15px var(--sans); box-shadow: 0 6px 22px rgba(0, 0, 0, .5); opacity: 0; transform: translateY(6px) scale(.92); pointer-events: none; transition: opacity var(--t-mid) var(--ease), transform var(--m-mid) var(--ease); }
+.akhere.on { opacity: 1; transform: none; pointer-events: auto; }
+
+/* 出处的书页图 */
+/* 出处书页：和原卷 / 书页浮层（.sheet）一样淡入淡出（以前是一下出现、一下没了） */
+.akpg { position: fixed; z-index: 68; inset: 0; background: rgba(8, 8, 8, .88); opacity: 0; visibility: hidden; pointer-events: none; transition: opacity var(--t-big) var(--ease), visibility 0s var(--t-big); }
+.akpg.on { opacity: 1; visibility: visible; pointer-events: auto; transition: opacity var(--t-big) var(--ease), visibility 0s; }
+.akpgin { position: absolute; inset: 0; display: grid; place-items: center; overflow: hidden; touch-action: none; }
+.akpgin img { max-width: 94vw; max-height: 90dvh; border-radius: 6px; transform-origin: center; will-change: transform; }
+.akpg .close { position: absolute; z-index: 2; right: 16px; top: calc(14px + env(safe-area-inset-top, 0px)); border-radius: 50%; background: var(--surface2); color: var(--ink); border: 1px solid var(--line2); }   /* 和原卷 / 书页浮层的 × 同一个位置 */
+.akpgz { position: absolute; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); display: flex; gap: 8px; }
+.akpgz .ic { width: 52px; height: 52px; border-radius: 50%; background: var(--surface2); color: var(--ink); border: 1px solid var(--line2); }
+
+/* ---- 课有问题 ---- */
+.rppane { overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; margin: 8px -6px 0; padding: 0 6px 12px; scrollbar-width: thin; scrollbar-color: var(--line2) transparent; }
+.rppane h3 { margin: 12px 2px 6px; font: 700 14px var(--sans); color: var(--muted); }
+.rpoff { margin: 0 0 4px; padding: 8px 12px; border-radius: 10px; background: var(--surface2); font-size: 14px; line-height: 1.5; color: var(--ink2); }
+.rpk { display: flex; flex-wrap: wrap; gap: 6px; }
+.rpk button, .rps button { min-height: 42px; padding: 6px 14px; border-radius: 12px; border: 1.5px solid var(--line2); background: var(--bg); color: var(--ink2); font-size: 15px; transition: border-color var(--t-mid), background var(--t-mid), color var(--t-mid), transform var(--m-fast); }
+.rpk button.on, .rps button.on { border-color: var(--acc); background: var(--acc-soft); color: var(--ink); }
+.rps { display: flex; gap: 6px; }
+.rps button { flex: 1; }
+.rpform .fbin { margin-top: 10px; }
+.rpgo { width: 100%; min-height: 46px; margin-top: 10px; border-radius: 12px; background: var(--acc); color: var(--on-acc); font: 700 16px var(--sans); }
+.rpgo:disabled { background: var(--surface2); color: var(--faint); }
+.rpl { display: flex; flex-direction: column; gap: 8px; }
+.rpr { padding: 8px 12px; border-radius: 12px; background: var(--bg); border: 1px solid var(--line); }
+.rph { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
+.rph b { font-size: 15px; color: var(--ink); }
+.rph span { font-size: 13px; color: var(--muted); }
+.rph time { font: 500 12px var(--mono); color: var(--muted); }
+.rpst { margin-left: auto; padding: 1px 8px; border-radius: 6px; font: 700 13px var(--sans); font-style: normal; color: var(--ink2); background: var(--surface2); }
+.rpr[data-st=working] .rpst { color: var(--blue); }
+.rpr[data-st=done] .rpst { color: var(--on-acc); background: var(--acc); }
+.rpr[data-st=applied] .rpst { color: var(--ok); background: var(--ok-soft); }
+.rpr[data-st=rejected] .rpst { color: var(--muted); }
+.rpt { margin: 6px 0 0; font-size: 14px; line-height: 1.6; color: var(--ink2); white-space: pre-wrap; }
+.rpn { margin: 6px 0 0; padding-left: 8px; border-left: 2px solid var(--line2); font-size: 14px; line-height: 1.6; color: var(--muted); }
+.rpacts { margin-top: 8px; display: flex; gap: 8px; }
+.rpa.go { border-color: var(--acc); color: var(--ink); background: var(--acc-soft); font-weight: 700; }
+.rpa.sure { border-color: var(--no); color: var(--ink); background: rgba(229, 118, 111, .16); font-weight: 700; }   /* 退回上一版：等第二次点的确认样子 */
+@media (prefers-reduced-motion: reduce) { .akst i, .akgrp.flash { animation: none; } }   /* 面板、让位、“问这里”的位移用 --m-*，这里自动归零 */

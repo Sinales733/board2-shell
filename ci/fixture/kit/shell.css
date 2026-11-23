@@ -1,0 +1,559 @@
+/* 外壳样式。暖黑底、米白字、标题用宋体；颜色只留橙（正在讲的东西）、蓝（指针和索引）、绿红（判对错）。 */
+:root {
+  --bg: #151515; --surface: #1d1d1c; --surface2: #272725; --ink: #f0efec; --ink2: #d9d7d0; --muted: #a7a59b; --faint: #7f7d75;
+  --line: #34332f; --line2: #45433f; --acc: #e08a69; --acc-soft: rgba(224, 138, 105, .14); --on-acc: #20140e;
+  --blue: #7fb2e5; --ok: #74c491; --ok-soft: rgba(116, 196, 145, .16); --no: #e5766f;
+  --serif: "Noto Serif SC", "Songti SC", "STSong", "SimSun", Georgia, serif;
+  --sans: "PingFang SC", "HarmonyOS Sans SC", "MiSans", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "SF Mono", Consolas, "Roboto Mono", monospace;
+  --ease: cubic-bezier(.3, .8, .3, 1);
+  /* 界面动效的节奏（2026-11-22 动画走查统一，盘点见 design/排产/动画盘点.md）：三档时长 + 一条缓动 --ease。
+     快：按下的回弹、小提示；常规：颜色、边框、小弹层、小按钮的出现；大：面板、抽屉、浮层、暗幕、整块让位、换段的淡入。
+     一起动的东西用同一档。--m-* 是“位移”用的同一套数值，系统开了“减弱动态效果”时归零（东西直接到位），淡入淡出照旧。 */
+  --t-fast: 120ms; --t-mid: 200ms; --t-big: 300ms;
+  --m-fast: var(--t-fast); --m-mid: var(--t-mid); --m-big: var(--t-big);
+  --rail: 288px;
+  color-scheme: dark;
+}
+@media (prefers-reduced-motion: reduce) { :root { --m-fast: 0ms; --m-mid: 0ms; --m-big: 0ms; } }
+/* 转屏、改窗口大小的那一下、昼夜换套的那一帧：所有过渡先停掉，直接排到新位置 / 换成新颜色，不从旧值慢慢挪过去（shell.js 的 noAnim） */
+html.noanim *, html.noanim *::before, html.noanim *::after { transition: none !important; }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; margin: 0; overscroll-behavior: none; }   /* 横滑不触发浏览器的“返回上一页” */
+body { background: var(--bg); color: var(--ink); font: 17px/1.6 var(--sans); overflow: hidden; touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-text-size-adjust: 100%; overscroll-behavior: none; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; touch-action: manipulation; }
+img { -webkit-user-drag: none; -webkit-touch-callout: none; }
+/* 触屏：手指一碰按钮就有反馈（shell.js 加 .press，不等 :active、不靠悬停）；面板跟着手指滑的时候不要过渡 */
+button.press { transform: scale(.95); }
+.stem.press { transform: scale(.98); }
+.swiping { transition: none !important; }
+svg { display: block; }
+.ic svg, .nav svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+
+.app { height: 100dvh; display: grid; grid-template-columns: var(--rail) minmax(0, 1fr); padding: env(safe-area-inset-top, 0) env(safe-area-inset-right, 0) env(safe-area-inset-bottom, 0) env(safe-area-inset-left, 0); }
+
+/* ---- 左栏：题号、原卷、四个选项。一屏装下，不滚动 ---- */
+.rail { min-height: 0; display: flex; flex-direction: column; gap: 14px; padding: 12px 12px 14px; background: var(--surface); border-right: 1px solid var(--line); }
+/* 题干太长时（shell.js 的 fitRail 量出来再加 .more），题干框自己缩短、框内上下滑，选项和按钮固定在下面；选项自己就排不下的极端情况才加 .scrolls，整条左栏滑 */
+.rail.scrolls { overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; scrollbar-width: thin; scrollbar-color: var(--line2) transparent; }
+.rail.scrolls > * { flex-shrink: 0; }
+.rail > .stem { flex: 0 1 auto; min-height: 88px; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; touch-action: pan-y; scrollbar-width: none; }
+.rail > .stem::-webkit-scrollbar { display: none; }
+.stem.more { -webkit-mask-image: linear-gradient(#000 calc(100% - 30px), transparent); mask-image: linear-gradient(#000 calc(100% - 30px), transparent); }   /* 底下还有内容：最后一行淡出 */
+.stem.code { font: 14px/1.4 var(--mono); }   /* 代码题干：小一档、行距收紧；换行和缩进照原样（pre-line 会吃缩进，这里用 pre-wrap，太长的行折行） */
+.stem.code.pre { white-space: pre-wrap; }
+/* 408 / 数学 开关：两格，当前这格实底，另一格淡；高度 36，每格至少 44 宽，点的范围比看到的大一圈 */
+.mods { flex: none; display: flex; gap: 2px; height: 36px; padding: 2px; border-radius: 11px; border: 1px solid var(--line2); background: var(--bg); }
+.app.nomods .mods { display: none; }
+.app.none .rail > .mods { visibility: visible; }   /* 这个模块今天没有题时，其余的左栏都藏起来，开关要留着 */
+.mods button { position: relative; flex: 1; min-width: 44px; border-radius: 8px; font: 700 15px var(--mono); color: var(--faint); transition: background var(--t-mid), color var(--t-mid), transform var(--m-fast); }
+.mods button::before { content: ''; position: absolute; inset: -7px -1px; }   /* 点的范围补到 44 高 */
+.mods button:active { transform: scale(.94); }
+.mods button.on { background: var(--ink2); color: #1b1b1a; }
+.rhead { display: flex; align-items: center; gap: 4px; }
+.tag { flex: 1; height: 46px; padding: 0 10px; border-radius: 12px; text-align: left; font: 700 20px var(--mono); letter-spacing: .02em; white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; transition: background var(--t-mid), transform var(--m-fast); }
+.tag.tight { font-size: 16px; letter-spacing: 0; padding: 0 6px; }
+.tag.tight .pos { margin-left: 6px; font-size: 12px; }
+.tag .tgo { display: inline-block; width: 16px; height: 16px; margin-left: 6px; vertical-align: -1px; fill: none; stroke: var(--muted); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }   /* 题号旁的小 ›：点题号出选题 */
+.ic { width: 46px; height: 46px; flex: none; display: grid; place-items: center; border-radius: 12px; color: var(--muted); transition: background var(--t-mid), color var(--t-mid), transform var(--m-fast); }
+.ic:active, .tag:active, .opt:active { transform: scale(.94); }
+.flag.on { color: var(--on-acc); background: var(--acc); }
+.flag.on svg { fill: currentColor; }
+.stem { display: block; width: 100%; padding: 2px 6px; text-align: left; font-size: 19px; line-height: 1.7; color: var(--ink); border-radius: 10px; transition: transform var(--m-fast); }
+.stem:active { transform: scale(.98); }
+.stem.pre { white-space: pre-line; }   /* 题干里的换行照原样分行 */
+.stem .sfig { display: block; width: 100%; height: auto; max-height: 190px; object-fit: contain; margin: 6px 0; border-radius: 6px; cursor: zoom-in; -webkit-user-drag: none; }   /* 题干里裁出的表 / 图（q.stemFig）：宽度贴合左栏，竖得太高的图（二叉树）限高 190 */
+.stem sup, .opt sup { font-size: .68em; line-height: 0; }   /* 原卷的上标（2^8B） */
+.opts { display: flex; flex-direction: column; gap: 10px; }
+.opt { position: relative; display: flex; align-items: center; gap: 12px; width: 100%; min-height: 60px; padding: 8px 14px; border-radius: 16px; border: 1.5px solid var(--line2); background: var(--bg); text-align: left; font-size: 18px; line-height: 1.4; color: var(--ink); transition: border-color var(--t-mid), background var(--t-mid), color var(--t-mid), transform var(--m-fast); }
+.opt b { flex: none; width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; background: var(--surface2); font: 700 17px var(--mono); color: var(--acc); transition: background-color var(--t-mid), color var(--t-mid); }
+.opt .mk { margin-left: auto; font-weight: 700; font-size: 20px; }
+/* 选项是图（字是空的）：四个按钮只留字母圆圈，排成一行；判完的 ✓✗ 缩小放在右上角 */
+.opts.imgs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.opt.noText { min-height: 54px; padding: 6px 0; justify-content: center; border-radius: 14px; }
+.opt.noText .t { display: none; }
+.opt.noText .mk { position: absolute; top: 2px; right: 6px; margin: 0; font-size: 14px; line-height: 1; }
+.opt.noText.me::before { top: 10px; bottom: 10px; left: 3px; }
+.opt.cur { border-color: var(--acc); box-shadow: 0 0 0 3px var(--acc-soft); }
+.opt[data-v=ok] { border-color: var(--ok); background: var(--ok-soft); }
+.opt[data-v=ok] b { background: var(--ok); color: #10231a; }
+.opt[data-v=ok] .mk { color: var(--ok); }
+.opt[data-v=no] { color: var(--faint); border-color: var(--line); }
+.opt[data-v=no] b { color: var(--faint); }
+.opt[data-v=no] .t { text-decoration: line-through; text-decoration-color: var(--no); }
+.opt[data-v=no] .mk { color: var(--no); }
+/* 题目挑“不成立的那一项”（check.pick = "false"）：说法成立的选项只压暗、不划线，记号 ✓ 用暗色；要选的那项照旧绿色强调，记号 ✗ */
+.opts.pickf .opt[data-v=no] .t { text-decoration: none; }
+.opts.pickf .opt[data-v=no] .mk { color: var(--faint); }
+
+/* ---- 右边：画面 + 一行结论 + 进度条 ---- */
+.main { min-width: 0; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto auto; }
+.stagewrap { position: relative; min-height: 0; padding: 10px 14px 0; }
+.stage { width: 100%; height: 100%; touch-action: none; }
+.empty { position: absolute; inset: 0; display: none; place-items: center; text-align: center; padding: 40px; font: 700 26px/1.6 var(--serif); color: var(--muted); }
+.app.none .empty { display: grid; }
+.app.none .cap, .app.none .bar, .app.none .rail > * { visibility: hidden; }
+.scene { width: 100%; height: 100%; display: block; overflow: visible; }
+.scene text { font-family: var(--sans); }
+.scene text.mono { font-family: var(--mono); }
+.scene text.serif { font-family: var(--serif); }
+.scene .glow { filter: drop-shadow(0 0 7px rgba(240, 239, 236, .55)); }
+.scene .hot.can { cursor: pointer; }
+.scene .hints { pointer-events: none; }
+.scene .hint { fill: none; stroke: var(--ink); stroke-width: 2; opacity: 0; transform-box: fill-box; transform-origin: center; animation: hint 2s ease-out infinite; }
+@keyframes hint { 0% { opacity: .85; transform: scale(.6); } 70% { opacity: 0; transform: scale(2.8); } 100% { opacity: 0; transform: scale(2.8); } }
+/* 点空白处：点到的地方漾开一圈，表示“收到了，往下走” */
+.ripple { position: fixed; z-index: 30; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%; border: 2px solid var(--acc); pointer-events: none; animation: ripple .5s ease-out forwards; }
+@keyframes ripple { from { opacity: .9; transform: scale(.4); } to { opacity: 0; transform: scale(3.4); } }
+
+.cap { margin: 0; padding: 4px 24px 2px; min-height: 58px; display: flex; align-items: center; font: 700 25px/1.4 var(--serif); color: var(--ink); text-wrap: balance; }
+.cap.swap { animation: capin var(--t-big) var(--ease) both; }
+@keyframes capin { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* ---- 进度条：极简。三种样式共用一套结构，.bar 上的 bar-a / bar-b / bar-c 决定长相 ----
+   a 细线：一根细线按段断开，段名在线下面
+   b 圆点：一步一个小圆点，只显示当前这一段的名字
+   c 刻度：一条发丝线加刻度，段首的刻度长一点、带段名，当前位置是一根细针
+   三种都能拖、能点段名跳转；两头的箭头不带框。 */
+.bar { display: flex; align-items: center; gap: 6px; padding: 2px 10px 10px; }
+.nav { width: 52px; height: 52px; flex: none; display: grid; place-items: center; border-radius: 50%; color: var(--muted); transition: transform var(--m-fast), opacity var(--t-mid), color var(--t-mid); }
+.nav svg { width: 26px; height: 26px; stroke-width: 2; }
+.nav.go { color: var(--acc); }
+.nav:active { transform: scale(.88); }
+.nav:disabled { opacity: .22; }
+.track { position: relative; flex: 1; min-width: 0; touch-action: none; cursor: pointer; padding: 6px 0; }
+.segs { display: flex; }
+.seg { min-width: 0; display: flex; }
+.seg .nm { position: relative; z-index: 1; white-space: nowrap; color: var(--faint); transition: color var(--t-mid), opacity var(--t-mid), transform var(--m-fast); }
+.seg .nm::before { content: ''; position: absolute; inset: -12px -6px; }   /* 段名字小，点的范围上下各补 12、左右各补 6，到 44 高 */
+.seg.past .nm { color: var(--muted); }
+.seg.on .nm { color: var(--ink); }
+.seg .cs { display: flex; align-items: center; }
+.seg .cs i { position: relative; display: block; background: var(--line2); }
+.seg .cs i::after { content: ''; position: absolute; inset: 0; background: var(--acc); transform-origin: left; transform: scaleX(var(--p, 0)); }
+.seg .cs i.flagged::before { content: ''; position: absolute; left: 50%; top: -10px; width: 5px; height: 5px; margin-left: -2.5px; border-radius: 50%; background: var(--acc); }
+.thumb { position: absolute; left: 0; top: 0; translate: -50% -50%; background: var(--ink); pointer-events: none; transition: scale var(--m-fast); }
+.tip { position: absolute; bottom: calc(100% + 4px); left: 0; transform: translateX(-50%); padding: 5px 12px; border-radius: 10px; background: var(--ink); color: #1b1b1a; font-size: 15px; font-weight: 700; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity var(--t-fast); z-index: 5; }
+.track.drag .tip { opacity: 1; }
+
+.bar-a .segs { gap: 10px; }
+.bar-a .seg { flex: var(--n) 1 auto; flex-direction: column-reverse; }
+.bar-a .seg .nm { height: 22px; padding: 4px 0 0; text-align: left; font-size: 13px; line-height: 18px; }
+.bar-a .seg .cs { height: 18px; gap: 2px; }
+.bar-a .seg .cs i { flex: 1; height: 2px; }
+.bar-a .thumb { width: 12px; height: 12px; border-radius: 50%; }
+.bar-a .track.drag .thumb { scale: 1.6; }
+
+.bar-b .segs { gap: 16px; justify-content: center; }
+.bar-b .seg { flex: 0 0 auto; flex-direction: column; align-items: center; }
+.bar-b .seg .nm { height: 22px; font-size: 13px; line-height: 20px; opacity: 0; }
+.bar-b .seg.on .nm { opacity: 1; }
+.bar-b .seg .cs { height: 22px; gap: 10px; }
+.bar-b .seg .cs i { flex: none; width: 7px; height: 7px; border-radius: 50%; overflow: hidden; transition: scale var(--m-mid); }
+.bar-b .seg .cs i.flagged { overflow: visible; }
+.bar-b .seg .cs i.cur { scale: 1.7; }
+.bar-b .thumb { display: none; }
+
+.bar-c .segs { gap: 0; }
+.bar-c .seg { flex: var(--n) 1 auto; flex-direction: column-reverse; }
+.bar-c .seg .nm { height: 22px; padding: 2px 0 0 6px; text-align: left; font-size: 13px; line-height: 20px; }
+.bar-c .seg .cs { height: 16px; align-items: flex-start; border-top: 1px solid var(--line2); }
+.bar-c .seg .cs i { flex: 1; height: 5px; background: none; border-left: 1px solid var(--faint); }
+.bar-c .seg .cs i:first-child { height: 13px; border-left-color: var(--muted); }
+.bar-c .seg .cs i::after { inset: auto; left: -1px; right: 0; top: -2px; height: 2px; }
+.bar-c .thumb { width: 2px; height: 22px; border-radius: 1px; background: var(--acc); }
+.bar-c .track.drag .thumb { scale: 1.5 1.2; }
+
+/* ---- 讲过的题、书页、提示 ---- */
+.scrim { position: fixed; inset: 0; z-index: 40; background: rgba(0, 0, 0, .5); opacity: 0; pointer-events: none; transition: opacity var(--t-big) var(--ease); }
+.scrim.on { opacity: 1; pointer-events: auto; }
+.drawer { position: fixed; z-index: 50; left: 0; top: 0; bottom: 0; width: min(380px, 88vw); padding: 22px 16px; background: var(--surface); border-right: 1px solid var(--line); transform: translateX(-104%); transition: transform var(--m-big) var(--ease); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; touch-action: pan-y; scrollbar-width: none; }
+.drawer::-webkit-scrollbar { display: none; }
+.drawer.on { transform: var(--sw, none); }
+.drawer h2 { font: 700 22px var(--serif); margin: 0 6px 14px; }
+.item { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 60px; padding: 8px 12px; border-radius: 12px; text-align: left; transition: background var(--t-mid), transform var(--m-fast); }
+.item:active { background: var(--surface2); }
+.item.on { background: var(--surface2); }
+.item b { font: 700 17px var(--mono); min-width: 5.6em; }
+.item span { flex: 1; font-size: 15px; color: var(--muted); }
+.item em { font-style: normal; font-weight: 700; color: var(--on-acc); background: var(--acc); font-size: 13px; min-width: 22px; height: 22px; border-radius: 11px; display: grid; place-items: center; }
+.barpick { display: flex; gap: 10px; margin: 26px 4px 0; padding-top: 18px; border-top: 1px solid var(--line); }
+.barpick button { flex: 1; height: 56px; padding: 8px; border-radius: 12px; border: 1.5px solid var(--line2); background: var(--bg); transition: border-color var(--t-mid), transform var(--m-fast); }
+.barpick button:active { transform: scale(.95); }
+.barpick button.on { border-color: var(--acc); }
+.barpick svg { width: 100%; height: 100%; fill: none; }
+.sheet { position: fixed; inset: 0; z-index: 60; background: rgba(12, 12, 12, .96); opacity: 0; pointer-events: none; transition: opacity var(--t-big) var(--ease), transform var(--m-big) var(--ease); overflow: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; touch-action: pan-x pan-y pinch-zoom; }
+.sheet.on { opacity: var(--swo, 1); transform: var(--sw, none); pointer-events: auto; }
+.sheet .close { position: fixed; right: 16px; top: 14px; z-index: 2; background: var(--surface2); color: var(--ink); }
+.pages { max-width: 980px; margin: 0 auto; padding: 16px 16px 60px; display: flex; flex-direction: column; gap: 14px; }
+.pages img { display: block; width: 100%; height: auto; border-radius: 8px; }
+.toast { position: fixed; z-index: 70; left: 50%; top: 18px; transform: translate(-50%, -80px); padding: 10px 20px; border-radius: 999px; background: var(--acc); color: var(--on-acc); font-weight: 700; transition: transform var(--m-big) var(--ease); }
+.toast.on { transform: translate(-50%, 0); }
+
+/* ---- 一天怎么用：题单位置、开讲前点答案、他选的那项、讲完自己报、当天小结 ---- */
+.tag .pos { margin-left: 10px; font: 500 14px var(--mono); color: var(--faint); letter-spacing: 0; }
+.gatemsg { position: absolute; inset: 0; display: none; place-items: center; text-align: center; padding: 40px; font: 700 26px/1.6 var(--serif); color: var(--ink2); pointer-events: none; }
+.app.gating .gatemsg { display: grid; }
+.app.gating.pic .gatemsg { display: none; }
+/* 开讲前右边大画面放这道题的原卷（深色版 q_dark.png，没有就用 q.png 压暗）；点图全屏看；太长的上下滑 */
+.gatepic { position: absolute; inset: 10px 14px 0; display: none; flex-direction: column; align-items: center; gap: 22px; padding: 26px 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; touch-action: pan-y; cursor: zoom-in; scrollbar-width: thin; scrollbar-color: var(--line2) transparent; }
+.app.gating .gatepic.has { display: flex; }
+.gatepic > :first-child { margin-top: auto; } .gatepic > :last-child { margin-bottom: auto; }
+.gp-msg { margin: 0; flex: none; text-align: center; font: 700 24px/1.5 var(--serif); color: var(--ink2); }
+.gatepic img { display: block; flex: none; width: 80%; height: auto; border-radius: 8px; }
+.gatepic.dim img { filter: invert(.86) hue-rotate(180deg) brightness(.95); }
+.app.gating .opt { border-color: var(--muted); }
+.app.gating .opt b { background: var(--acc); color: var(--on-acc); }
+.app.gating .bar { opacity: .35; }
+.gbtns { display: flex; flex-direction: column; gap: 10px; }
+.gbtns:empty { display: none; }
+.gbtn { min-height: 54px; padding: 8px 14px; border-radius: 16px; border: 1.5px solid var(--line2); background: var(--bg); font-size: 17px; color: var(--ink2); transition: transform var(--m-fast); }
+.gbtn:active { transform: scale(.95); }
+.gbtn.go { background: var(--acc); border-color: var(--acc); color: var(--on-acc); font-weight: 700; }
+.gbtn.ok { border-color: var(--ok); color: var(--ok); font-weight: 700; }
+.gbtn.no { border-color: var(--no); color: var(--no); font-weight: 700; }
+.gbtns.nudge .gbtn { animation: nudge .45s var(--ease); }
+@keyframes nudge { 30% { transform: translateX(-6px); } 60% { transform: translateX(5px); } }
+.opt.me::before { content: ''; position: absolute; left: 5px; top: 14px; bottom: 14px; width: 3px; border-radius: 2px; background: var(--ink2); }
+.opt.me[data-v=ok]::before { background: var(--ok); }
+.opt.me[data-v=no] { color: var(--ink2); border-color: var(--no); background: rgba(229, 118, 111, .13); }
+.opt.me[data-v=no]::before { background: var(--no); }
+.opt.me[data-v=no] b { background: var(--no); color: #2a1210; }
+.sum { display: none; gap: 22px; margin: 0 6px 18px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.sum.on { display: flex; }
+.sum span { display: flex; align-items: center; gap: 7px; color: var(--muted); }
+.sum svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.sum span.ok { color: var(--ok); }
+.sum span.fl { color: var(--acc); }
+.sum b { font: 700 21px var(--mono); color: var(--ink); }
+.sum b small { font-size: 14px; font-weight: 500; color: var(--faint); }
+.item .dot { flex: none; width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--faint); }
+.item .dot[data-s=ok] { background: var(--ok); border-color: var(--ok); }
+.item .dot[data-s=no] { background: var(--no); border-color: var(--no); }
+.item .dot[data-s=wait] { border-color: var(--ink2); }
+.item.miss { opacity: .35; pointer-events: none; }
+
+/* ---- 综合题的左栏：原卷图（tools/bigscan.py 改排成窄长一列、深色）上下滑着看，点一下全屏看原卷；下面是小问的编号 ---- */
+.bigscan { display: none; }
+.app.big .stem { display: none; }
+.app.big .bigscan { display: block; flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; touch-action: pan-y; border-radius: 10px; background: #242320; cursor: zoom-in; scrollbar-width: thin; scrollbar-color: var(--line2) transparent; }
+.bigscan img { display: block; width: 100%; height: auto; pointer-events: none; }
+.bigscan.raw img { filter: invert(.86) hue-rotate(180deg) brightness(.95); }
+.app.big .opts { flex-direction: row; flex-wrap: wrap; gap: 8px; }
+.part { flex: 1 1 0; min-width: 60px; height: 52px; border-radius: 14px; border: 1.5px solid var(--line2); background: var(--bg); font: 700 19px var(--mono); color: var(--acc); transition: border-color var(--t-mid), box-shadow var(--t-mid), transform var(--m-fast), opacity var(--t-mid); }
+.part:active { transform: scale(.94); }
+.part.cur { border-color: var(--acc); box-shadow: 0 0 0 3px var(--acc-soft); }
+.app.gating .part { opacity: .4; }
+
+/* ---- 反馈 → 重讲：大画面右上角的小气泡和它的面板；放重讲时多一个 × ---- */
+/* 右上角这一组：草稿纸按钮（kit/draft.js 放进来，在最左）、‹ 回去、反馈气泡，同在一个 flex 里排版，面板开关时一起被挤着走，同一帧起步、同一帧到位。
+   .fbx 自己不设 z-index（不成一层），里面每个按钮各自排层：气泡在画面上面（6），草稿纸按钮在草稿纸（45）上面、问答面板（55）和原卷浮层（60）下面，被盖住就自然看不见 */
+.fbx { position: absolute; top: 12px; right: 16px; display: flex; gap: 4px; }
+.fbx .ic { position: relative; z-index: 6; width: 40px; height: 40px; border-radius: 50%; color: var(--faint); opacity: .75; }
+.fbx .ic::before { content: ''; position: absolute; inset: -3px; }   /* 看着 40，点的范围 46 */
+.fbx .ic svg { width: 21px; height: 21px; }
+.fbx .ic:active { opacity: 1; color: var(--ink2); }
+#btnFb { position: relative; }
+#btnFb::after { content: ''; position: absolute; top: 7px; right: 7px; width: 8px; height: 8px; border-radius: 50%; background: var(--acc); box-shadow: 0 0 0 2px var(--bg); transform: scale(0); transition: transform var(--m-big) var(--ease); }
+#btnFb.dot { opacity: 1; color: var(--ink2); }
+#btnFb.dot::after { transform: scale(1); }
+#btnRedoX { display: none; }
+.app.redo #btnRedoX { display: grid; }
+.app.redo .flag { visibility: hidden; }
+/* 读题（kit/read.js）：开讲前左栏一个淡淡的小入口；读题时旗子藏起来、右上角 × 回到开讲前，题干整体压暗，这一步那几句亮起来 */
+.rdin { display: none; }
+.app.gating .rdin.on { display: flex; align-self: flex-start; align-items: center; gap: 8px; min-height: 44px; min-width: 44px; padding: 6px 14px 6px 11px; border-radius: 14px; border: 1px solid var(--line2); background: transparent; color: var(--muted); font-size: 16px; animation: mkfade var(--t-big) var(--ease) both; transition: transform var(--m-fast); }
+.rdin.press, .rdin:active { transform: scale(.95); }
+.rdin svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.app.reading #btnRedoX { display: grid; }
+.app.reading .flag { visibility: hidden; }
+.app.reading .stem { color: var(--faint); }
+.app.reading .stem .rdq { transition: color var(--t-big), background-color var(--t-big); border-radius: 4px; }
+.app.reading .stem .rdon { color: var(--ink); background: var(--acc-soft); box-shadow: 0 0 0 2px var(--acc-soft); }
+.app.reading .opt { opacity: .55; }
+.app.reading .opt.rdon { opacity: 1; border-color: var(--acc); }
+.app.quiet .fbx { display: none; }
+.app.none .fbx > :not(.dbtn) { display: none; }   /* 没有题的空页：只留草稿纸按钮 */
+.app.mock .stagewrap > .fbx:has(.dbtn.open) { display: flex !important; }   /* 补练里画面那一层整个藏着；草稿纸开着时按钮留着（和以前一样） */
+.app.mock .fbx > :not(.dbtn) { display: none !important; }
+/* 面板本身（.fbp、分页、问答、报修）的样式在 kit/ask.css */
+.rds { display: flex; flex-direction: column; gap: 6px; }
+.rds:not(:empty) { margin-bottom: 10px; }
+.rd { position: relative; display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 6px 12px; border-radius: 12px; background: var(--bg); text-align: left; transition: transform var(--m-fast); }
+.rd:active { transform: scale(.97); }
+.rd svg { width: 18px; height: 18px; flex: none; fill: var(--acc); }
+.rd b { font: 700 16px var(--serif); color: var(--ink); }
+.rd span { margin-left: auto; font: 500 14px var(--mono); color: var(--faint); }
+.rd.new::after { content: ''; position: absolute; left: 4px; top: 50%; width: 5px; height: 5px; margin-top: -2.5px; border-radius: 50%; background: var(--acc); }
+
+/* ---- 薄弱点：抽屉右上角的入口，和它打开的一页 ---- */
+.wkbtn { position: absolute; top: 12px; right: 10px; width: 42px; height: 42px; }
+.wkbtn::before { content: ''; position: absolute; inset: -2px; }
+.wkbtn svg { width: 21px; height: 21px; }
+.weak { position: fixed; z-index: 60; top: 0; bottom: 0; left: 50%; width: min(620px, 100vw); translate: -50% 0; padding: 22px 18px 40px; background: var(--surface); border-left: 1px solid var(--line); border-right: 1px solid var(--line);
+  overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; opacity: 0; transform: translateY(14px); pointer-events: none; transition: opacity var(--t-big) var(--ease), transform var(--m-big) var(--ease); scrollbar-width: thin; scrollbar-color: var(--line2) transparent; }
+.weak.on { opacity: var(--swo, 1); transform: var(--sw, none); pointer-events: auto; }
+.weak .close { position: absolute; right: 12px; top: 12px; }
+.weak h2 { font: 700 22px var(--serif); margin: 0 6px 16px; }
+.whead, .wsum { display: grid; grid-template-columns: minmax(0, 1fr) repeat(3, 52px); align-items: center; }
+.whead { padding: 0 12px 6px; color: var(--faint); }
+.whead i { display: grid; place-items: center; }
+.whead svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.whead .no { color: var(--no); } .whead .fl { color: var(--acc); }
+.wrow { border-top: 1px solid var(--line); }
+.wsum { width: 100%; min-height: 56px; padding: 6px 12px; text-align: left; border-radius: 12px; transition: background var(--t-mid); }
+.wsum:active { background: var(--surface2); }
+.wn { font-size: 17px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wsum .c { text-align: center; font: 700 19px var(--mono); }
+.wsum .no { color: var(--no); } .wsum .sk { color: var(--ink2); } .wsum .fl { color: var(--acc); }
+.wqs { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--m-big) var(--ease); }
+.wqs > div { min-height: 0; overflow: hidden; padding-left: 14px; }
+.wrow.open .wqs { grid-template-rows: 1fr; }
+.wrow.open .wsum { background: var(--surface2); }
+.wqs .item { min-height: 48px; }
+.wdrill h3 { margin: 8px 12px 2px; font: 700 14px var(--sans); color: var(--faint); }
+.item .dot[data-s=skip] { border-color: var(--no); }
+.wempty { margin: 40px 6px; color: var(--muted); font: 700 20px/1.6 var(--serif); text-align: center; }
+
+@media (max-width: 860px) {
+  .app.big .bigscan { display: none; }
+  .rail .gbtns { flex-direction: row; }
+  .gbtn { min-height: 46px; }
+  .app { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+  .rail { flex-direction: row; align-items: center; border-right: 0; border-bottom: 1px solid var(--line); padding: 8px 10px; }
+  .mods { width: 112px; }
+  .rail .stem { display: none; }
+  .rail .opts { flex: 1; flex-direction: row; }
+  .opt { min-height: 46px; padding: 4px 8px; } .opt .t { display: none; }
+  .bar .seg .nm { display: none; }
+  .cap { font-size: 20px; }
+}
+/* ---- 选题：年份 → 题型 → 题号格子。一层一个 .pane，叠在同一格里，往里走新的从右边滑进、旧的往左滑出，返回反过来 ---- */
+.nvh { display: flex; align-items: center; gap: 2px; min-height: 46px; margin: 0 52px 12px 0; }
+.nvh h2 { flex: 1; min-width: 0; margin: 0 2px; font: 700 22px var(--serif); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nvh h2 b { font: 700 22px var(--mono); }
+/* 面包屑：408 › 2010 › 选择题；前面几段能点（跳回那一层），当前这一段亮 */
+.nvh h2:has(.bc) { display: flex; align-items: center; overflow-x: auto; scrollbar-width: none; font-size: 20px; }
+.nvh h2::-webkit-scrollbar { display: none; }
+.nvh .bc { flex: none; display: inline-flex; align-items: center; min-height: 44px; padding: 0 5px; border-radius: 10px; font: inherit; color: var(--muted); }
+.nvh .bc b { font: inherit; font-family: var(--mono); }
+.nvh .bc.now { color: var(--ink); }
+.nvh h2 > i { flex: none; font-style: normal; font-weight: 400; color: var(--faint); }
+.nvh .bc.press { background: var(--surface2); }
+.nvback { margin-left: -6px; color: var(--ink2); }
+.nvh[data-lv="1"] .nvback { visibility: hidden; }   /* 第一层没有上一层：占着位置不显示，面包屑不跟着左右跳 */
+.nvx { flex: none; color: var(--muted); }
+/* 卷子那一层顶上：按题型 / 按题号 */
+.nvsort { display: flex; gap: 2px; margin: 0 0 12px; padding: 2px; border-radius: 12px; border: 1px solid var(--line2); background: var(--bg); }
+.nvsort button { flex: 1; min-height: 40px; border-radius: 9px; font: 700 15px var(--sans); color: var(--muted); transition: background var(--t-mid), color var(--t-mid); }
+.nvsort button.on { background: var(--surface2); color: var(--ink); }
+.nv { display: grid; overflow: hidden; margin: 0 -4px; padding: 4px; }
+.pane { grid-area: 1 / 1; min-width: 0; transition: transform var(--m-big) var(--ease), opacity var(--t-big) var(--ease); }
+.pane.from-r { transform: translateX(42%); opacity: 0; } .pane.from-l { transform: translateX(-42%); opacity: 0; }
+.pane.out { pointer-events: none; } .pane.out.to-l { transform: translateX(-42%); opacity: 0; } .pane.out.to-r { transform: translateX(42%); opacity: 0; }
+/* 做了几道 / 共几道：细进度条 + 数字 */
+.pb { display: block; height: 3px; border-radius: 2px; background: var(--line2); overflow: hidden; }
+.pb > i { display: block; height: 100%; background: var(--ok); transform-origin: left; transform: scaleX(var(--f, 0)); transition: transform var(--m-big) var(--ease); }
+.yr small, .ty small { font: 500 13px var(--mono); color: var(--faint); }
+.yr small b, .ty small b { font-weight: 700; color: var(--ink2); }
+.yrs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.yr { display: flex; flex-direction: column; gap: 7px; min-height: 68px; padding: 10px 12px 9px; border-radius: 14px; border: 1.5px solid var(--line2); background: var(--bg); text-align: left; transition: border-color var(--t-mid), transform var(--m-fast); }
+.yr > b { font: 700 19px/1 var(--mono); color: var(--ink); }
+.yr small { line-height: 1; }
+.yr.on, .ty.on { border-color: var(--acc); }
+.tys { display: flex; flex-direction: column; gap: 10px; }
+.ty { display: grid; grid-template-columns: 1fr auto; align-items: center; row-gap: 10px; min-height: 74px; padding: 14px 16px 12px; border-radius: 16px; border: 1.5px solid var(--line2); background: var(--bg); text-align: left; transition: border-color var(--t-mid), transform var(--m-fast); }
+.ty > b { font: 700 20px var(--serif); color: var(--ink); }
+.ty small { justify-self: end; }
+.ty .pb { grid-column: 1 / -1; grid-row: 2; }
+/* 题号格子：一屏放下。底色说状态：空 没做 / 绿 做对 / 红 做错 / 虚线红框 不会 / 亮框 讲了没报对错；右上角橙点 标了没懂；橙圈 当前这道 */
+.cells { display: grid; grid-template-columns: repeat(auto-fill, minmax(46px, 1fr)); gap: 6px; }
+.cells.math { grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); }
+.cell { position: relative; min-height: 46px; padding: 0 2px; border-radius: 11px; border: 1.5px solid var(--line2); background: var(--bg); font: 700 16px var(--mono); color: var(--muted); white-space: nowrap; transition: transform var(--m-fast), border-color var(--t-mid); animation: cellin var(--t-big) var(--ease) backwards; animation-delay: calc(var(--i, 0) * 6ms); }
+.cells.math .cell { font-size: 15px; }
+@keyframes cellin { from { opacity: 0; transform: scale(.85); } }
+.cell[data-s=ok] { background: var(--ok-soft); border-color: transparent; color: var(--ok); }
+.cell[data-s=no] { background: rgba(229, 118, 111, .16); border-color: transparent; color: var(--no); }
+.cell[data-s=skip] { border-style: dashed; border-color: var(--no); color: var(--ink2); }
+.cell[data-s=wait] { border-color: var(--ink2); color: var(--ink2); }
+.cell.fl::after { content: ''; position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--acc); }
+.cell.cur { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--acc); color: var(--ink); }
+.cell.miss { opacity: .3; pointer-events: none; }
+.yr.press, .ty.press, .cell.press { transform: scale(.94); }
+@media (prefers-reduced-motion: reduce) { .pane, .cell { transition: none; animation: none; } }
+
+@media (prefers-reduced-motion: reduce) { .scene .hint, .cap.swap, .ripple, .gbtns.nudge .gbtn { animation: none; } }
+
+/* 自动截图用：?still=1 时不放任何过渡，画面一步到位 */
+.still *, .still *::before, .still *::after { animation: none !important; transition: none !important; }
+.still .scene .hints { display: none; }
+
+/* ---- 补练（kit/mock.js）：叠在讲解上面，讲解那一页原样留在底下 ----
+   左栏换成 mrail：退出 × + 来源和小节、一组几道的小圆点、A–D 四个大字母、底下的按钮；右边是题图 / 解析图，一张一页左右翻、上下滑、点按或双指放大 */
+.mrail, .mview, .mkin, .mkbtn { display: none; }
+.app.mock .rail > :not(.mrail) { display: none !important; }
+.app.mock .mrail { display: flex; flex-direction: column; gap: 18px; flex: 1; min-height: 0; visibility: visible; }
+.app.mock .stagewrap > :not(.mview) { display: none !important; }
+.app.mock .cap, .app.mock .bar { display: none; }
+.app.mock .mview { display: block; position: absolute; inset: 10px 14px 6px; }
+.app.mk-in .mrail, .app.mk-in .mview { animation: mkin var(--t-big) var(--ease) both; }
+@keyframes mkin { from { opacity: 0; transform: translateY(10px); } }
+.mhead { display: flex; align-items: center; gap: 8px; }
+#mkX { background: var(--surface2); color: var(--ink2); border-radius: 50%; }
+.msrc { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; padding-left: 4px; }
+.msrc b { font: 700 21px/1.1 var(--mono); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.msrc small { font: 500 13px/1.2 var(--sans); color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mdots { display: flex; gap: 12px; padding: 0 10px; }
+.mdots i { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--faint); transition: background var(--t-mid), border-color var(--t-mid), transform var(--m-mid) var(--ease); }
+.mdots i.cur { border-color: var(--acc); transform: scale(1.35); }
+.mdots i[data-s=ok] { background: var(--ok); border-color: var(--ok); }
+.mdots i[data-s=no] { background: var(--no); border-color: var(--no); }
+.mopts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.mopts:empty { display: none; }
+.mopt { position: relative; height: 78px; border-radius: 18px; border: 1.5px solid var(--muted); background: var(--bg); font: 700 28px var(--mono); color: var(--acc); transition: border-color var(--t-mid), background var(--t-mid), color var(--t-mid), opacity var(--t-mid), transform var(--m-fast); }
+.mopt:active { transform: scale(.94); }
+.mopt:disabled { opacity: .35; border-color: var(--line); color: var(--faint); }
+.mopt[data-v=ok] { opacity: 1; border-color: var(--ok); background: var(--ok-soft); color: var(--ok); }
+.mopt[data-v=no] { opacity: 1; border-color: var(--no); background: rgba(229, 118, 111, .13); color: var(--no); }
+.mopt[data-v=ok]::after, .mopt[data-v=no]::after { position: absolute; top: 6px; right: 10px; font-size: 16px; }
+.mopt[data-v=ok]::after { content: '✓'; } .mopt[data-v=no]::after { content: '✗'; }
+#mkBtns { margin-top: auto; }
+#mkBtns .gbtn { animation: capin var(--t-big) var(--ease) both; }
+/* 右边的图：一页一张，横着成一排吸附翻页；页里能上下滑；放大了（.zoomed）横向手势交给这一页自己滑 */
+.mpages { position: absolute; inset: 0; display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; touch-action: pan-x pan-y; scrollbar-width: none; }
+.mpages::-webkit-scrollbar, .mpg::-webkit-scrollbar { display: none; }
+.mpages.zoomed { overflow-x: hidden; scroll-snap-type: none; }
+.mpg { flex: 0 0 100%; height: 100%; scroll-snap-align: start; scroll-snap-stop: always; overflow: auto; overscroll-behavior: contain; display: flex; flex-direction: column; padding: 16px 0 44px; touch-action: pan-x pan-y; scrollbar-width: none; cursor: zoom-in; }
+.mpages.zoomed .mpg { cursor: zoom-out; }
+.mpg img { flex: none; display: block; width: min(calc(var(--z, 1) * 92%), calc(var(--z, 1) * var(--nw, 99999px) * 1.5)); max-width: none; height: auto; margin: auto; border-radius: 8px; pointer-events: none; }
+.mpg img.inv { filter: invert(.86) hue-rotate(180deg) brightness(.95); }
+.mpages.swap .mpg:first-child img { animation: mkpg var(--t-big) var(--ease) both; }
+@keyframes mkpg { from { opacity: 0; transform: translateX(28px); } }
+.mpd { position: absolute; left: 0; right: 0; bottom: -4px; display: flex; justify-content: center; pointer-events: none; }
+.mpd button { width: 44px; height: 44px; display: grid; place-items: center; pointer-events: auto; }
+.mpd i { width: 7px; height: 7px; border-radius: 50%; background: var(--line2); transition: background var(--t-mid), transform var(--m-mid) var(--ease); }
+.mpd button.on i { background: var(--acc); transform: scale(1.4); }
+/* 入口一：讲完一道做错 / 不会的题，左栏底下淡淡出现 */
+.mkin.on { display: flex; align-items: center; gap: 10px; min-height: 50px; margin-top: auto; padding: 8px 14px; border-radius: 14px; border: 1px solid var(--line2); color: var(--muted); font-size: 16px; text-align: left; animation: mkfade var(--t-big) .25s var(--ease) both; transition: transform var(--m-fast); }
+.mkin svg, .mkbtn svg, .wmk svg, .whead .mk svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.mkin:active { transform: scale(.96); }
+@keyframes mkfade { from { opacity: 0; transform: translateY(6px); } }
+/* 入口三：抽屉右上角，薄弱点左边 */
+.mkbtn.on { display: grid; position: absolute; top: 12px; right: 56px; width: 42px; height: 42px; }
+.mkbtn::before { content: ''; position: absolute; inset: -2px; }
+.drawer:has(.mkbtn.on) .nvh { margin-right: 100px; }
+#drawer:has(#sum.on) .nvh { margin-right: 0; }   /* 有今日三个数那一行时，补练 / 薄弱点按钮在那一行上，选题这一行不用给它们让位（面包屑要地方） */
+.mkty > b { min-width: 0; overflow-wrap: anywhere; line-height: 1.35; font-size: 18px; }   /* 数学讲次名很长（（一）（二）（三）只差一个字），不省略，折行 */
+.mkty > b .mono { margin-right: 10px; font: 700 17px var(--mono); color: var(--acc); }
+.mkty small em { font-style: normal; color: var(--ok); margin-right: 10px; }
+.mkty small em::before { content: '✓ '; }
+.mkpb { position: relative; }
+.mkpb > i { position: absolute; inset: 0; }
+.mkpb > i.d { background: var(--muted); opacity: .4; }
+/* 入口二：薄弱点每行最右一格（做对 / 做过，没做过只放图标） */
+.wline { display: flex; align-items: stretch; }
+.wline > .wsum { flex: 1; min-width: 0; }
+.wmk, .wmk0 { flex: none; width: 58px; }
+.weak:not(.hasmk) .wmk0 { display: none; }
+.wmk { min-height: 56px; display: grid; place-items: center; border-radius: 12px; color: var(--muted); transition: background var(--t-mid), transform var(--m-fast); }
+.wmk:active { background: var(--surface2); transform: scale(.94); }
+.wmk b { font: 700 18px var(--mono); color: var(--ok); }
+.wmk small { font: 500 14px var(--mono); color: var(--faint); }
+.wmk b + small { margin-left: 1px; }
+.wmk:has(b) { display: flex; justify-content: center; align-items: baseline; padding-top: 18px; }
+.whead .mk { display: none; color: var(--muted); }
+.weak.hasmk .whead { grid-template-columns: minmax(0, 1fr) repeat(3, 52px) 12px 58px; padding-right: 0; }
+.weak.hasmk .whead .mk { display: grid; grid-column: 6; }
+@media (prefers-reduced-motion: reduce) { .app.mk-in .mrail, .app.mk-in .mview, .mpages.swap .mpg:first-child img, .mkin.on, #mkBtns .gbtn { animation: none; } }
+
+/* ---- 新讲法（kit/xin.js）：左栏换成往下长的讲稿，字在画面旁边，不盖图 ----
+   横屏：左栏加宽，题号行下面整条是讲稿（上下滑）；开讲前左栏放原卷图、右边放原卷，底下“我先做 / 直接讲”。
+   竖屏（≤860）：画面在上（按 1000:720 定高）、进度条接着，讲稿在下面占满剩下的高度。
+   当前段最亮；讲过的变淡留着（点了跳回那一步）；解题步上面一条引出它的原句，轮到它时亮一下；术语虚线下划线，点开看解释。 */
+.xdoc { display: none; position: relative; }
+.xdoc [hidden] { display: none !important; }
+.app.xin { --rail: 384px; }
+.app.xin .cap, .app.xin .opts, .app.xin .rdin { display: none; }
+.app.xin:not(.gating) .bigscan { display: none; }
+.app.xin:not(.gating) .xdoc { display: block; order: 1; flex: 1 1 auto; min-height: 0; margin: 0 -12px; padding: 4px 14px 40vh; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; touch-action: pan-y; scrollbar-width: thin; scrollbar-color: var(--line2) transparent; }
+.app.xin .gbtns { order: 2; }
+.app.xin.gating .gbtns { flex-direction: column; }
+.xp { position: relative; margin: 0 0 6px; padding: 10px 10px 10px 14px; border-radius: 12px; cursor: pointer; transition: opacity var(--t-big), background-color var(--t-big); }
+.xp::before { content: ''; position: absolute; left: 3px; top: 12px; bottom: 12px; width: 3px; border-radius: 2px; background: transparent; transition: background-color var(--t-big); }
+.xp.past, .xp.ahead { opacity: .42; }
+.xp.cur { opacity: 1; background: var(--surface2); cursor: default; }
+.xp.cur::before { background: var(--acc); }
+.xp.unit::before { background: var(--line2); }
+.xp.unit.cur::before { background: var(--blue); }
+.xtx { margin: 0; font: 400 18px/1.75 var(--sans); color: var(--ink); white-space: pre-line; }
+.xtx sup { font-size: .68em; line-height: 0; }
+.xq { margin: 0 0 8px; padding: 6px 10px; border-radius: 8px; border-left: 3px solid var(--acc); background: var(--acc-soft); font: 700 16px/1.6 var(--serif); color: var(--ink2); }
+.xq.xcode { font: 500 14px/1.55 var(--mono); white-space: pre; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; scrollbar-color: var(--line2) transparent; }   /* 题句是代码（含换行）：等宽、缩进原样、过宽横向滑 */
+.xq.xfrom.xcode { font-size: 13.5px; }
+.xcourse { margin-top: 8px; }
+/* 书页出处（q.json 的 cites）：讲稿段落下面的小按钮，和书页浮层里框着原文的整页 */
+.xcites { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.xcite { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 4px 12px; border-radius: 12px; border: 1.5px solid var(--line2); background: var(--bg); color: var(--acc); font: 700 14px/1 var(--sans); transition: border-color var(--t-mid), transform var(--m-fast); }
+.xcite svg { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.xcite:active { transform: scale(.97); }
+.cpage { margin: 0; }
+.cpage figcaption { margin: 0 0 6px; font: 700 15px/1.4 var(--sans); color: var(--acc); }
+.cimg { position: relative; }
+.cimg img { display: block; width: 100%; height: auto; border-radius: 8px; }
+.cimg svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.cimg rect { fill: rgba(224, 138, 105, .10); stroke: #d9663c; stroke-width: 3; vector-effect: non-scaling-stroke; rx: 4; }
+.xcb { display: inline-flex; align-items: center; gap: 6px; min-width: 48px; min-height: 44px; padding: 6px 12px; border-radius: 12px; border: 1.5px solid var(--line2); background: var(--bg); color: var(--blue); font: 700 15px/1 var(--sans); transition: border-color var(--t-mid), transform var(--m-fast); }
+.xcb svg { width: 22px; height: 22px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.xcb.on { border-color: var(--blue); }
+.xcb:active { transform: scale(.97); }
+.xcl { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.xcl a { display: flex; align-items: baseline; gap: 10px; min-height: 44px; padding: 8px 12px; border-radius: 10px; border-left: 3px solid var(--blue); background: rgba(127, 178, 229, .1); color: var(--ink2); text-decoration: none; font: 400 15px/1.5 var(--sans); }
+.xcl a i { flex: none; font: 700 14px/1 var(--mono); font-style: normal; color: var(--blue); }
+.xcl a:active { background: rgba(127, 178, 229, .2); }
+.xdoc .cjk_fallback { font-family: var(--sans); letter-spacing: .05em; }   /* KaTeX 公式里的中文（text 命令）：用界面字体、加一点字距，不然挤成一团 */
+.xq.xfrom { border-left-color: var(--faint); background: transparent; color: var(--muted); font-weight: 500; font-size: 15px; }
+.xq.xfrom::before { content: '↳ '; color: var(--faint); }
+.xp.flash .xq.xfrom { animation: xflash 1.4s var(--ease) .15s both; }
+@keyframes xflash { 0% { background: transparent; color: var(--muted); } 25% { background: var(--acc-soft); color: var(--ink); border-left-color: var(--acc); } 100% { background: rgba(224, 138, 105, .07); color: var(--ink2); border-left-color: var(--acc); } }
+.xp.cur .xq.xfrom { color: var(--ink2); border-left-color: var(--acc); }
+.xw { border-bottom: 1.5px dotted var(--blue); color: var(--ink); cursor: pointer; padding: 0 1px; }
+.xw.first { border-bottom-style: solid; color: var(--blue); cursor: default; }
+.xw.on { background: rgba(127, 178, 229, .14); border-radius: 3px; }
+.xdefs:empty { display: none; }
+.xd { display: none; margin: 8px 0 0; padding: 8px 12px; border-radius: 8px; background: rgba(127, 178, 229, .1); border-left: 3px solid var(--blue); font: 400 16px/1.65 var(--sans); color: var(--ink2); }
+.xd.on { display: block; animation: capin var(--t-big) var(--ease) both; }
+.xfold { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 48px; margin: 0 0 6px; padding: 8px 12px; border-radius: 12px; border: 1px dashed var(--line2); text-align: left; color: var(--muted); font-size: 16px; }
+.xfold svg { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.xfold b { flex: 1; min-width: 0; color: var(--ink2); font-weight: 700; }
+.xfold span { flex: none; font-size: 14px; color: var(--faint); }
+.xsum { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.xsi { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-height: 48px; padding: 10px 12px; border-radius: 12px; border: 1.5px solid var(--line2); background: var(--bg); text-align: left; font-size: 16px; line-height: 1.5; color: var(--ink); transition: border-color var(--t-mid), transform var(--m-fast); }
+.xsi .xf { color: var(--acc); font-size: 17px; max-width: 100%; overflow-x: auto; overflow-y: hidden; padding: 3px 0 7px; }   /* overflow-y 不关的话行内高一点的式子旁边会冒出竖向滚动条的小箭头 */
+.xdoc .katex { font-size: 1.1em; }   /* 数学题讲稿里的公式（kit/xin.js 的 rich）；太宽的由 fitTex 再缩 */
+.xdoc .mxglue .xpunct { font-family: var(--sans); font-size: .75em; font-style: normal; }   /* 粘在公式后面的标点：回到正文字号 */
+.xsi .xf .katex { font-size: 1.1em; padding: 2px 0; }
+.xsi.press, .xsi:active, .xfold.press, .xfold:active { transform: scale(.98); }
+@media (max-width: 860px) {
+  .app.xin { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+  .app.xin .main { order: -1; grid-template-rows: min(58vh, calc((100vw - 28px) * .72 + 10px)) auto; }
+  .app.xin .rail { flex-direction: column; align-items: stretch; gap: 8px; min-height: 0; border-bottom: 0; border-top: 1px solid var(--line); padding: 6px 10px 10px; }
+  .app.xin .rhead { flex: none; }
+  .app.xin:not(.gating) .xdoc { padding-bottom: 30vh; }
+  .app.xin.gating .gbtns { flex-direction: row; }
+}
+/* 新讲法的题干（左栏顶部那条原题）：给一个最大高度，超出的在框里滑；底下一个小箭头点开 / 收起。题干短的没有箭头 */
+.stemtog { display: none; }
+.app.xin:not(.big):not(.gating) .rail > .stem { display: block; flex: 0 0 auto; min-height: 0; max-height: 34vh; }
+.app.xin.stemopen:not(.big):not(.gating) .rail > .stem { max-height: 62vh; }
+.app.xin:not(.big):not(.gating) .stemtog.on { display: flex; justify-content: center; align-items: center; flex: none; width: 100%; height: 26px; margin: -8px 0 -6px; border-radius: 8px; color: var(--faint); }
+.stemtog { position: relative; }
+.stemtog::before { content: ''; position: absolute; left: 0; right: 0; top: -9px; bottom: -9px; }   /* 看着 26 高，手指按的范围 44 高（手机上本来就有，平板补上） */
+.stemtog svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform var(--m-mid); }
+.app.xin.stemopen .stemtog svg { transform: rotate(180deg); }
+.stemtog:active { background: var(--surface2); }
+@media (max-width: 860px) {
+  .app.xin:not(.big):not(.gating) .rail > .stem { max-height: 15vh; font-size: 16px; line-height: 1.6; }
+  .app.xin.stemopen:not(.big):not(.gating) .rail > .stem { max-height: 36vh; }
+  .app.xin:not(.big):not(.gating) .stemtog.on { margin: -4px 0 -4px; }
+}
+@media (prefers-reduced-motion: reduce) { .xp.flash .xq.xfrom, .xd.on { animation: none; } }

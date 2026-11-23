@@ -1,0 +1,9 @@
+/* 综合题的画面（kit/big.js）：算式行用 KaTeX 排，盖满画布的一层不接点击；框和数学题的荧光框一个样子。 */
+.bkfo, .bkcalc { pointer-events: none; }
+.bkcalc { position: relative; overflow: visible; color: var(--ink); }
+.bkarea { position: absolute; }
+.bkline { position: absolute; white-space: nowrap; line-height: 1.4; }
+.bkcalc .katex { font-size: 1em; text-shadow: 0 0 8px rgba(240, 239, 236, .22); }
+.bkcalc .bkfly, .bkcalc .bkmk { display: inline-block; }
+.bkbox { position: absolute; box-sizing: border-box; border: 2.5px solid var(--acc); border-radius: 8px;
+  box-shadow: 0 0 12px rgba(224, 138, 105, .55), inset 0 0 10px rgba(224, 138, 105, .18); }

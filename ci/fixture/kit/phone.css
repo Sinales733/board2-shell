@@ -1,0 +1,110 @@
+/* iPhone 竖屏（视口宽 ≤ 500 且竖屏）的版面。平板（820 竖屏、1180 横屏）一条都不命中，样子不变。
+   镜头、手势、分界线在 kit/phone.js；这两个小东西只在手机上建出来，别处一律藏着。 */
+.phcam, .phgrab { display: none; }
+@media (max-width: 500px) and (orientation: portrait) {
+  html, body { position: fixed; inset: 0; width: 100%; overflow: hidden; overscroll-behavior: none; }   /* 整页不跟着手指走、不回弹 */
+  .app { grid-template-columns: minmax(0, 1fr); }
+
+  /* ---- 顶栏（旧式题）：第一行 408/数学、题号、旗子、书；第二行选项字母和按钮；开讲前中间夹着题干 ---- */
+  .rail { position: relative; flex-wrap: wrap; align-content: flex-start; gap: 6px; padding: 6px 8px 8px; }
+  .mods { width: 96px; height: 40px; }
+  .mods button { font-size: 14px; }
+  .rhead { flex: 1 1 200px; min-width: 0; gap: 0; }
+  .tag { height: 44px; padding: 0 6px; font-size: 17px; }
+  .tag .pos { margin-left: 6px; font-size: 12px; }
+  .ic { width: 44px; height: 44px; }
+  .rail .opts { flex: 1 1 210px; gap: 6px; }
+  .rail .opts:empty { display: none; }
+  .opt { min-height: 44px; padding: 2px 4px; gap: 0; justify-content: center; border-radius: 13px; }
+  .opt b { width: 32px; height: 32px; font-size: 16px; }
+  .opt .mk { position: absolute; top: 1px; right: 5px; margin: 0; font-size: 13px; line-height: 1; }
+  .opt.me::before { top: 10px; bottom: 10px; left: 3px; }
+  .rail .gbtns { flex: 0 1 auto; gap: 6px; }
+  .app:not(.xin) .rail .opts:empty + .gbtns { flex: 1 1 100%; }
+  .app.xin .rail .gbtns { flex: none; }
+  .rail .gbtns .gbtn { flex: 1 1 auto; }
+  .gbtn { min-height: 44px; padding: 6px 12px; border-radius: 13px; font-size: 15px; }
+  .app.big .opts { gap: 6px; }
+  .part { height: 44px; min-width: 52px; font-size: 17px; }
+  .app.gating:not(.xin):not(.big) .rail > .stem { display: block; flex: 1 1 100%; max-height: 34dvh; padding: 0 4px; font-size: 16px; line-height: 1.65; }   /* 开讲前：题干照原卷的字排在顶栏里，看得清；点它看原卷 */
+  .app.gating:not(.xin):not(.big) .rail > .stem.code { font-size: 13px; }
+  .stem .sfig { max-height: 150px; }
+  .app.gating .rdin.on { flex: 0 1 auto; min-height: 44px; font-size: 15px; }
+  .mkin.on { flex: 1 1 100%; margin-top: 0; min-height: 44px; font-size: 15px; }
+
+  /* ---- 画面、一行结论、进度条 ---- */
+  .stagewrap { padding: 6px 8px 0; }
+  .stage { overflow: hidden; }   /* 推近以后画布外面的东西不许画到进度条、顶栏上 */
+  .cap { min-height: 0; padding: 6px 14px 2px; font-size: 17px; line-height: 1.5; }
+  .bar { gap: 2px; padding: 0 4px 6px; }
+  .nav { width: 46px; height: 46px; }
+  .fbx { top: 8px; right: 10px; }
+  .gatepic { inset: 6px 8px 0; gap: 12px; padding: 12px 0; }
+  .gatepic img { width: 100%; }
+  .gp-msg { font-size: 18px; }
+  .gatemsg, .empty { padding: 20px; font-size: 20px; }
+  .phcam { display: grid; position: absolute; right: 10px; bottom: 4px; z-index: 6; width: 40px; height: 40px; border-radius: 50%; color: var(--muted); background: rgba(21, 21, 21, .72); }
+  .phcam::before { content: ''; position: absolute; inset: -3px; }
+  .phcam svg { width: 20px; height: 20px; }
+  .app.gating .phcam, .app.none .phcam, .app.mock .phcam { display: none; }
+
+  /* ---- 新讲法：画面（高度 = 屏高 × --phr，把手拖着调）、进度条、把手、讲稿 ---- */
+  .app.xin .main { grid-template-rows: calc(var(--phr, .43) * (100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))) auto; }
+  .app.xin .rail { flex-wrap: nowrap; gap: 6px; padding: 0 8px 4px; }
+  .app.xin .phgrab { display: grid; flex: none; place-items: center; height: 18px; margin: 0 -8px; touch-action: none; cursor: ns-resize; }
+  .phgrab::before { content: ''; position: absolute; left: 0; right: 0; height: 44px; margin-top: -13px; }   /* 看着是一条细把手，手指按的范围 44 高 */
+  .phgrab i { width: 44px; height: 4px; border-radius: 2px; background: var(--line2); transition: background .2s; }
+  .phgrab.on i { background: var(--muted); }
+  .app.xin .rail > .mods { position: absolute; z-index: 2; left: 8px; top: 20px; }   /* 开关和题号挤在同一行 */
+  .app.xin:not(.nomods) .rhead { padding-left: 102px; }
+  .app.xin .rhead { min-height: 44px; }
+  .app.xin:not(.big):not(.gating) .rail > .stem { max-height: 13dvh; font-size: 15px; line-height: 1.6; }
+  .app.xin.stemopen:not(.big):not(.gating) .rail > .stem { max-height: 40dvh; }
+  .app.xin.gating:not(.big) .rail > .stem { display: block; flex: 1 1 auto; min-height: 0; max-height: none; padding: 2px 4px; font-size: 16px; line-height: 1.65; }   /* 开讲前：讲稿的位置先放题干 */
+  .app.big.gating .bigscan { display: block; flex: 1 1 auto; min-height: 0; }   /* 综合题开讲前：放改排成一长条的原卷 */
+  .stemtog { position: relative; }
+  .stemtog::before { content: ''; position: absolute; left: 0; right: 0; top: -9px; bottom: -9px; }
+  .app.xin:not(.gating) .xdoc { margin: 0 -8px; padding: 2px 10px 0; }
+  .app.xin:not(.gating) .xdoc::after { content: ''; display: block; height: 26vh; }   /* 讲稿底下留白让最后一段能滚上来；用占位块不用内边距，内边距会把讲稿栏撑得缩不下去（小屏上讲稿栏会被挤没） */
+  .xp { padding: 8px 8px 8px 12px; }
+  .xtx { font-size: 17px; line-height: 1.7; }
+  .xq { font-size: 15px; }
+  .xq.xfrom { font-size: 14px; }
+  .xd { font-size: 15px; }
+  .xsi { font-size: 15px; }
+  .xdoc .katex.xwide { display: inline-block; max-width: 100%; overflow-x: auto; overflow-y: hidden; vertical-align: middle; padding: 2px 0 6px; overscroll-behavior-x: contain; touch-action: pan-x pan-y; scrollbar-width: thin; scrollbar-color: var(--line2) transparent; }   /* 太宽的公式：缩到 8 成还放不下，就在原地横着滑 */
+
+  /* ---- 补练：A–D 排成一行，矮一点，给题图腾地方 ---- */
+  .app.mock .mrail { flex: 1 1 100%; gap: 10px; }
+  .mopts { grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .mopt { height: 52px; border-radius: 14px; font-size: 22px; }
+  .app.mock .mview { inset: 6px 8px 4px; }
+  .msrc b { font-size: 18px; }
+
+  /* ---- 抽屉、薄弱点、书页、提示：躲开刘海和底部横条 ---- */
+  .drawer { width: min(360px, 90vw); padding: calc(14px + env(safe-area-inset-top, 0px)) 12px calc(16px + env(safe-area-inset-bottom, 0px)); }
+  .wkbtn, .mkbtn.on { top: calc(10px + env(safe-area-inset-top, 0px)); }
+  .wkbtn { width: 44px; height: 44px; } .mkbtn.on { width: 44px; height: 44px; right: 58px; }
+  .weak { padding: calc(16px + env(safe-area-inset-top, 0px)) 10px calc(30px + env(safe-area-inset-bottom, 0px)); }
+  .weak .close { top: calc(8px + env(safe-area-inset-top, 0px)); right: 8px; }
+  .whead, .wsum { grid-template-columns: minmax(0, 1fr) repeat(3, 40px); }
+  .weak.hasmk .whead { grid-template-columns: minmax(0, 1fr) repeat(3, 40px) 6px 50px; }
+  .wmk, .wmk0 { width: 50px; }
+  .wn { font-size: 15px; }
+  .sheet .close { top: calc(10px + env(safe-area-inset-top, 0px)); right: 10px; }
+  .pages { padding: calc(10px + env(safe-area-inset-top, 0px)) 8px calc(40px + env(safe-area-inset-bottom, 0px)); }
+  .toast { top: calc(12px + env(safe-area-inset-top, 0px)); max-width: calc(100vw - 24px); text-align: center; }
+
+  /* ---- 问答 / 报修：从底下升起（新讲法题停在进度条下面，旧式题五成屏高、把画面往上挤；把手拖到快满屏）；能点的都到 44 ---- */
+  .fbp { padding: 18px 12px calc(10px + env(safe-area-inset-bottom, 0px)); }
+  .fbp.kbup { padding-bottom: 8px; }
+  .app.akopen:not(.xin) { padding-bottom: calc(var(--fbh, 50dvh) + env(safe-area-inset-bottom, 0px)); }   /* 旧式题：面板五成屏高，画面往上挤，◀ ▶ 和进度条露在面板上面（11-20 他定） */
+  .fbgrab { height: 22px; }
+  .fbtabs { height: 44px; }
+  .akchips button { min-height: 44px; }
+  .akstep { min-height: 40px; }
+  .akcite, .akretry, .akesc, .aknew, .rpa { min-height: 44px; }
+  .rpk button, .rps button { min-height: 44px; }
+  .akqbar .ic { width: 44px; height: 44px; }
+  .akpgz { right: 12px; }
+}

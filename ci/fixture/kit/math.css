@@ -1,0 +1,64 @@
+/* 数学题的画面（kit/math.js）：黑底上的式子微微发光，荧光框按字形画；3D 图、平面图的标注。 */
+.mxb { position: relative; overflow: hidden; color: var(--ink);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 18px, #000 100%); mask-image: linear-gradient(to bottom, transparent 0, #000 18px, #000 100%); }
+.mxcol { position: relative; padding-top: 32px; }
+.mxline { position: relative; width: 100%; margin-bottom: 22px; line-height: 1.55; overflow-wrap: normal; }
+.mxb .katex { font-size: 1em; text-shadow: 0 0 9px rgba(240, 239, 236, .28); }
+.mxb .mxkp { display: inline-block; }
+.mxb .mxmk { transition: none; }
+.mxline.ans { margin-top: 8px; font-size: 1.5em; }
+.mxans { display: inline-block; color: var(--ok); }
+.mxans .katex { text-shadow: 0 0 12px rgba(116, 196, 145, .45); }
+.mxans .mxopt { margin-left: .7em; }   /* 选择题：答案字母后面那个选项的原文 */
+/* 荧光框：橙色细框 + 一圈光，罩在字形上 */
+.mxbox { position: absolute; box-sizing: border-box; border: 2.5px solid var(--acc); border-radius: 8px; pointer-events: none;
+  box-shadow: 0 0 12px rgba(224, 138, 105, .55), inset 0 0 10px rgba(224, 138, 105, .18); }
+
+.mxfig { position: relative; overflow: hidden; touch-action: none; }
+.mxfig.own-drag { cursor: grab; }
+.mxfig canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+.mxfig > svg { position: absolute; left: 0; top: 0; overflow: visible; }
+.mxfig .mxglow { filter: drop-shadow(0 0 6px currentColor); }
+.mxlab { position: absolute; left: 0; top: 0; font-size: 22px; white-space: nowrap; color: var(--ink); pointer-events: none;
+  text-shadow: 0 0 6px #000, 0 0 3px #000; }
+.mxlab.axis { font-size: 18px; color: var(--muted); }
+.mxlab .katex { font-size: 1em; }
+
+/* 左栏的题干、选项里的公式 */
+.stem .katex, .opt .t .katex { font-size: 1.06em; }
+.opt .t .katex-html { white-space: nowrap; }   /* 选项里的式子不在等号处折行，放不下就缩小（math.js rail） */
+.opts:has(.katex) { gap: 6px; }
+.opts:has(.katex) .opt { min-height: 50px; padding: 4px 10px; gap: 8px; }
+.opts:has(.katex) .opt .t { min-width: 0; }
+.stem .katex-display { margin: .3em 0; }
+.stem .katex, .opt .t .katex { margin: 0 .08em; }   /* 公式和两边的汉字、标点之间留一点缝 */
+.mxglue { white-space: nowrap; }   /* 公式最后一块 + 紧跟的标点，不折开 */
+.mxglue .mxpunct { font-family: var(--sans, sans-serif); font-size: .94em; }
+.mxb .mxnb { white-space: nowrap; }
+.mxb .mxseg { display: block; }   /* 一行折成的一截（math.js 按字形高度给它加上边距） */
+
+/* 卡片（思路、定理卡）：盖在板书区中间的一块面板，和黑底上发光的推导行分开；不发光、细边框、左边一道色条 */
+.mxcards { position: relative; pointer-events: none; color: var(--ink); }
+.mxcard { position: absolute; left: 0; right: 0; margin: 0 auto; width: calc(100% - 24px); max-width: 760px; box-sizing: border-box;
+  padding: .8em 1.05em .85em; background: var(--surface); border: 1px solid var(--line2); border-left: 3px solid var(--blue); border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .45); font-family: var(--sans); }
+.mxcard.idea { border-left-color: var(--acc); }
+.mxc-head { display: flex; align-items: baseline; gap: .6em; margin-bottom: .2em; }
+.mxc-tag { flex: none; font-size: .56em; letter-spacing: .14em; color: var(--muted); border: 1px solid var(--line2); border-radius: 999px; padding: .12em .7em .1em .84em; position: relative; top: -.2em; }
+.mxc-title { font-family: var(--serif); font-weight: 700; font-size: 1.02em; color: var(--ink); }
+.mxc-f { margin: .45em 0 .55em; font-size: 1.12em; text-align: center; white-space: nowrap; overflow: visible; }
+.mxc-f .katex { font-size: 1em; }
+.mxc-row { display: flex; gap: .8em; align-items: baseline; font-size: .74em; line-height: 1.6; margin-top: .45em; color: var(--ink2); }
+.mxc-row + .mxc-row { padding-top: .45em; border-top: 1px solid var(--line); }
+.mxc-k { flex: none; min-width: 2.6em; color: var(--muted); font-size: .9em; }
+.mxc-v { flex: 1; min-width: 0; }
+.mxc-v .katex { font-size: 1.04em; }
+.mxc-row.fit .mxc-v, .mxc-row.so .mxc-v { color: var(--ink); }
+.mxc-ok { display: inline-block; margin-left: .45em; color: var(--ok); font-weight: 700; }
+/* 思路卡：题干里的特征照抄，橙色细框框起来；"看到"和"想到"之间一道竖线 */
+.mxc-chips { display: flex; flex-wrap: wrap; gap: .4em .5em; margin: .1em 0 .35em; }
+.mxc-chip { display: inline-block; padding: .08em .5em; border: 1.5px solid var(--acc); border-radius: 7px; color: #ffd7bf; background: var(--acc-soft); }
+.mxc-chip .katex { font-size: 1.02em; }
+.mxcard.idea .mxc-row + .mxc-row { border-top: 0; padding-top: 0; }
+.mxc-bar { width: 2px; height: 1.1em; margin: .3em 0 .1em 1.2em; background: var(--line2); border-radius: 1px; }
+.mxc-f.txt { white-space: normal; text-align: left; font-size: .9em; line-height: 1.75; }

@@ -1,0 +1,120 @@
+name: Build unsigned IPA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    # macos-26 是 GitHub 当前 macos-latest 指向的镜像；写死版本号，避免以后 latest 漂移时突然换 Xcode。
+    runs-on: macos-26
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Show environment
+        run: |
+          sw_vers
+          xcode-select -p
+          xcodebuild -version
+          xcodebuild -showsdks | grep -i iphoneos || true
+
+      - name: Install XcodeGen
+        run: |
+          brew install xcodegen
+          xcodegen --version
+
+      - name: Generate Xcode project
+        run: xcodegen generate --spec project.yml
+
+      - name: Build (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project Board2Shell.xcodeproj \
+            -scheme Board2Shell \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tee xcodebuild.log
+
+      - name: Show build log tail on failure
+        if: failure()
+        run: |
+          if [ -f xcodebuild.log ]; then
+            echo "===== error lines ====="
+            grep -nE "error:|fatal error|\*\* BUILD FAILED" xcodebuild.log || true
+            echo "===== last 300 lines ====="
+            tail -n 300 xcodebuild.log
+          else
+            echo "xcodebuild.log not found"
+          fi
+
+      - name: Package IPA
+        run: |
+          set -euo pipefail
+          APP="build/Build/Products/Release-iphoneos/Board2Shell.app"
+          if [ ! -d "$APP" ]; then
+            echo "App not found at $APP"
+            find build/Build/Products -maxdepth 2 -name "*.app" -print || true
+            exit 1
+          fi
+          rm -rf ipa && mkdir -p ipa/Payload
+          cp -R "$APP" ipa/Payload/
+          (cd ipa && zip -qry ../Board2.ipa Payload)
+          ls -la Board2.ipa
+          unzip -l Board2.ipa | head -n 20
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v7
+        with:
+          path: Board2.ipa
+          # 不再套一层 zip，下载下来直接就是 Board2.ipa
+          archive: false
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: xcodebuild-log
+          path: xcodebuild.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  simulator:
+    # 在 iPad 模拟器里跑起 App：截主要画面（深浅两套 × 横竖），连得上 / 连不上各自检一次。不影响上面出安装包。
+    runs-on: macos-26
+    timeout-minutes: 70
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate --spec project.yml
+
+      - name: Run UI-test screenshots on iPad simulator
+        run: |
+          chmod +x ci/sim_shots.sh
+          ci/sim_shots.sh shots
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: shots
+          path: shots
+          if-no-files-found: warn
+          retention-days: 30

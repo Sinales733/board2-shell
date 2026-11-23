@@ -1,0 +1,72 @@
+# XcodeGen 工程描述。CI 上运行 `xcodegen generate` 生成 Board2Shell.xcodeproj（不进仓库）。
+name: Board2Shell
+
+options:
+  bundleIdPrefix: com.example
+  developmentLanguage: zh-Hans
+  deploymentTarget:
+    iOS: "16.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+
+targets:
+  Board2Shell:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: Sources
+      - path: Resources
+        excludes:
+          - "Info.plist"
+    settings:
+      base:
+        PRODUCT_NAME: Board2Shell
+        # 占位 Bundle ID。Sideloadly 用免费 Apple ID 签名时会改写成它自己的。
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.board2shell
+        INFOPLIST_FILE: Resources/Info.plist
+        GENERATE_INFOPLIST_FILE: "NO"
+        # 2 = 只支持 iPad
+        TARGETED_DEVICE_FAMILY: "2"
+        SUPPORTS_MACCATALYST: "NO"
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: "NO"
+        SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: "NO"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        MARKETING_VERSION: "1.8"
+        CURRENT_PROJECT_VERSION: "10"
+        ENABLE_USER_SCRIPT_SANDBOXING: "NO"
+        CODE_SIGN_STYLE: Manual
+        DEVELOPMENT_TEAM: ""
+
+  # 云端模拟器截图用的 UI 测试（只在 GitHub Actions 的 simulator 任务里跑，不进安装包）
+  Board2ShotsUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: UITests
+    dependencies:
+      - target: Board2Shell
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: "YES"
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.board2shell.shots
+        TEST_TARGET_NAME: Board2Shell
+        TARGETED_DEVICE_FAMILY: "2"
+        CODE_SIGN_STYLE: Manual
+        DEVELOPMENT_TEAM: ""
+
+schemes:
+  Board2Shell:
+    build:
+      targets:
+        Board2Shell: all
+    test:
+      targets:
+        - Board2ShotsUITests
+    run:
+      config: Debug
+    archive:
+      config: Release

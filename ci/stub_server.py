@@ -1,0 +1,112 @@
+"""云端模拟器截图、自检用的假"讲解版服务"。只在 GitHub Actions 的 Mac 上跑，不是给平时用的。
+
+静态文件从 ci/fixture/ 读（一道 2009 年的示例题 + kit/ + vendor/，从 board2 抄来的）。
+另外假装几个接口：/draft（存在内存里）、/status、/feedback、/records、/reports、/ask/history，
+/ask/stream 发两条 SSE 消息（自检里看 b2:// 能不能把流式回答转过去），其余 POST 一律回 {"ok": true}。
+用法：python3 ci/stub_server.py <端口> <fixture 目录>
+"""
+import http.server
+import json
+import os
+import socketserver
+import sys
+import time
+from urllib.parse import parse_qs, urlparse
+
+PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8409
+ROOT = os.path.abspath(sys.argv[2] if len(sys.argv) > 2 else os.path.join(os.path.dirname(__file__), "fixture"))
+DRAFTS = {}
+POSTS = []
+STATE = {"offline": False}   # /_offline 以后：除了 /_ 开头的控制接口，一律不回话直接断开（App 那边当"连不上电脑"）
+
+
+class H(http.server.SimpleHTTPRequestHandler):
+    def __init__(self, *a, **k):
+        super().__init__(*a, directory=ROOT, **k)
+
+    def parse_request(self):
+        ok = super().parse_request()
+        if ok and STATE["offline"] and not self.path.startswith("/_"):
+            self.close_connection = True
+            try:
+                self.connection.shutdown(2)
+            except OSError:
+                pass
+            return False
+        return ok
+
+    def end_headers(self):
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
+    def log_message(self, fmt, *args):
+        sys.stderr.write("[stub] " + (fmt % args) + "\n")
+
+    def reply(self, obj, code=200):
+        b = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(b)))
+        self.end_headers()
+        self.wfile.write(b)
+
+    def do_GET(self):
+        u = urlparse(self.path)
+        p, q = u.path, parse_qs(u.query)
+        if p == "/draft":
+            i = (q.get("id") or [""])[0]
+            return self.reply({"id": i, "doc": DRAFTS.get(i)})
+        if p == "/status":
+            return self.reply({"watcher": {"online": True}, "cli": {"ok": True}, "queue": 0})
+        if p in ("/feedback",):
+            return self.reply([])
+        if p == "/records":
+            return self.reply({})
+        if p == "/reports":
+            return self.reply({"reports": []})
+        if p == "/ask/history":
+            return self.reply({"threads": []})
+        if p == "/mock":
+            return self.reply({})
+        if p == "/_posts":
+            return self.reply(POSTS)
+        if p == "/_offline":
+            STATE["offline"] = True
+            return self.reply({"offline": True})
+        if p == "/_online":
+            STATE["offline"] = False
+            return self.reply({"offline": False})
+        if p == "/ask/stream":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.end_headers()
+            for i in range(2):
+                self.wfile.write(("data: piece%d\n\n" % i).encode())
+                self.wfile.flush()
+                time.sleep(0.3)
+            return
+        return super().do_GET()
+
+    def do_POST(self):
+        n = int(self.headers.get("Content-Length") or 0)
+        raw = self.rfile.read(n) if n else b""
+        p = urlparse(self.path).path
+        POSTS.append({"path": p, "len": len(raw)})
+        if p == "/draft":
+            try:
+                body = json.loads(raw.decode("utf-8"))
+            except ValueError:
+                return self.reply({"error": "bad json", "len": len(raw)}, 400)
+            DRAFTS[body.get("id")] = body.get("doc")
+            return self.reply({"id": body.get("id"), "ok": True})
+        return self.reply({"ok": True})
+
+
+class S(socketserver.ThreadingMixIn, http.server.HTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+
+if __name__ == "__main__":
+    print("stub serving", ROOT, "on", PORT, flush=True)
+    S(("0.0.0.0", PORT), H).serve_forever()

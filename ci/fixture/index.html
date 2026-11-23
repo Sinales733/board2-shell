@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>讲解版</title>
+<link rel="stylesheet" href="kit/shell.css?v=34">
+<link rel="stylesheet" href="vendor/katex/katex.min.css">
+<link rel="stylesheet" href="kit/math.css?v=4">
+<link rel="stylesheet" href="kit/big.css?v=1">
+<link rel="stylesheet" href="kit/ask.css?v=7">
+<link rel="stylesheet" href="kit/phone.css?v=2">
+<link rel="stylesheet" href="kit/theme.css?v=3">
+<link rel="stylesheet" href="kit/draft.css?v=5">
+<script src="kit/theme.js?v=2"></script>
+</head>
+<body>
+<!-- 界面上所有给人看的字都不写在这里：外壳的字在 kit/ui.json，知识块的字在 units/<知识块>/text.json，题目的字在 questions/<id>/q.json 的 text 里，都由 Gemini 写。 -->
+<div class="app" id="app">
+  <!-- 左栏只留三样：题号（点它出“讲过的题”）+ 没懂标记 + 看书；题干（照原卷抄的，点它看原卷截图）；四个选项 -->
+  <aside class="rail" id="rail">
+    <!-- 408 / 数学 两个模块的开关（题号以 m 开头的是数学）；今日题单为空时整个藏起来 -->
+    <div class="mods" id="mods"><button data-m="exam" data-t="ui.mod.exam"></button><button data-m="math" data-t="ui.mod.math"></button></div>
+    <header class="rhead">
+      <button class="tag" id="tag"></button>
+      <button class="ic flag" id="btnFlag" data-aria="ui.flag"><svg viewBox="0 0 24 24"><path d="M6 21V4h11l-2 4 2 4H6"/></svg></button>
+      <button class="ic" id="btnBook" data-aria="ui.book"><svg viewBox="0 0 24 24"><path d="M5 4h9a4 4 0 0 1 4 4v12H9a4 4 0 0 1-4-4zM5 16a4 4 0 0 1 4-4h9"/></svg></button>
+    </header>
+    <button class="stem" id="stem" data-aria="ui.scan"></button>
+    <button class="stemtog" id="stemTog"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+    <div class="opts" id="opts"></div>
+    <!-- 开讲前的“不会”/“做完了，开始讲”，和没有选项的题讲完自己报的“做对了”“做错了”，由 shell.js 按情况放进来 -->
+    <div class="gbtns" id="gbtns"></div>
+    <!-- 新讲法（kit/xin.js）：往下长的讲稿，当前段最亮、讲过的变淡留着；只在 q.json 写了 xin 的题出现 -->
+    <div class="xdoc" id="xdoc"></div>
+    <!-- 读题（kit/read.js）：开讲前，有 read.json 的题才露出来；点了把题干一句一句讲清楚在说什么 -->
+    <button class="rdin" id="rdIn"><svg viewBox="0 0 24 24"><path d="M4 6.5h16M4 11.5h9M4 16.5h6"/><path d="M15.5 13.5l4.5 4.5M17.3 15.3a2.8 2.8 0 1 1-4-4 2.8 2.8 0 0 1 4 4z"/></svg><span data-t="ui.read.go"></span></button>
+    <!-- 补练（kit/mock.js）：讲完一道做错 / 不会的题，底下淡淡出一个入口；进去以后左栏换成下面的 mrail -->
+    <button class="mkin" id="mkIn"><svg viewBox="0 0 24 24"><path d="M6.5 7v10M17.5 7v10M3.5 9.5v5M20.5 9.5v5M6.5 12h11"/></svg><span data-t="ui.mock.go"></span></button>
+    <div class="mrail" id="mrail">
+      <header class="mhead"><button class="ic" id="mkX" data-aria="ui.mock.exit"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button><div class="msrc" id="mkSrc"></div></header>
+      <div class="mdots" id="mkDots"></div>
+      <div class="mopts" id="mkOpts"></div>
+      <div class="gbtns" id="mkBtns"></div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="stagewrap"><div class="stage" id="stage"></div><div class="empty" id="empty" data-t="ui.empty"></div><div class="gatemsg" id="gateMsg"></div>
+      <!-- 补练的大画面：题图 / 解析图一张一页，左右翻、上下滑，点按或双指放大 -->
+      <div class="mview" id="mkView"><div class="mpages" id="mkPages"></div><div class="mpd" id="mkPd"></div></div>
+      <!-- 右上角：反馈气泡（重讲做好了出小点）；放重讲 / 读题时左边多一个 ‹ 回到原讲解 / 开讲前 -->
+      <div class="fbx">
+        <button class="ic" id="btnRedoX" data-aria="ui.fb.back"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
+        <button class="ic" id="btnFb" data-aria="ui.fb.open"><svg viewBox="0 0 24 24"><path d="M5 5.5h14v10H11l-4 3.5v-3.5H5z"/></svg></button>
+      </div>
+    </div>
+    <p class="cap" id="cap"></p>
+    <div class="bar bar-a">
+      <button class="nav" id="btnPrev" data-aria="ui.prev"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
+      <div class="track" id="track"><div class="segs" id="segs"></div><div class="thumb" id="thumb"></div><div class="tip" id="tip"></div></div>
+      <button class="nav go" id="btnNext" data-aria="ui.next"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></button>
+    </div>
+  </main>
+
+  <div class="scrim" id="scrim"></div>
+  <aside class="drawer" id="drawer">
+    <!-- 右上角：薄弱点（按王道小节统计错了几道、不会几道、没懂几步） -->
+    <!-- 右上角左边：补练（按 科目 → 章 → 节 / 数学按讲次 下钻，kit/mock.js）；题库空着就不出 -->
+    <button class="ic mkbtn" id="btnMock" data-aria="ui.mock.open"><svg viewBox="0 0 24 24"><path d="M6.5 7v10M17.5 7v10M3.5 9.5v5M20.5 9.5v5M6.5 12h11"/></svg></button>
+    <button class="ic wkbtn" id="btnWeak" data-aria="ui.weak.open"><svg viewBox="0 0 24 24"><path d="M5 19V13M10 19V8M15 19v-4M20 19V5"/></svg></button>
+    <!-- 有今日题单时，顶上一行当天的三个数：做了几道 / 对了几道 / 标了几步没懂（只有数字和小图） -->
+    <div class="sum" id="sum">
+      <span data-aria="ui.sum.done"><svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4"/></svg><b id="sumDone"></b></span>
+      <span class="ok" data-aria="ui.sum.right"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><b id="sumOk"></b></span>
+      <span class="fl" data-aria="ui.sum.flags"><svg viewBox="0 0 24 24"><path d="M6 21V4h11l-2 4 2 4H6"/></svg><b id="sumFlag"></b></span>
+    </div>
+    <!-- 选题分三层：年份 → 题型 → 题号格子（卷子那一层可切“按题号”，整张卷子排成一片，少一层）。顶上一行：‹ 回上一层、面包屑（点哪段跳回哪层）、× 关掉抽屉；下面一层一层滑进滑出（kit/shell.js 的“选题”） -->
+    <div class="nvh" id="nvh"><button class="ic nvback" id="nvBack" data-aria="ui.nav.back"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button><h2 id="nvTitle"></h2><button class="ic nvx" id="nvX" data-aria="ui.close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+    <div class="nv" id="nv"></div>
+    <!-- 进度条的三种样式，点一下就换（不带字，画的就是样子本身） -->
+    <div class="barpick" id="barpick">
+      <button data-k="a"><svg viewBox="0 0 96 28"><path d="M6 12h22M32 12h34M70 12h20" stroke="#45433f" stroke-width="2"/><path d="M6 12h22M32 12h14" stroke="#e08a69" stroke-width="2"/><circle cx="46" cy="12" r="4" fill="#f0efec"/><path d="M6 22h12M32 22h16M70 22h12" stroke="#7f7d75" stroke-width="3" stroke-linecap="round" opacity=".6"/></svg></button>
+      <button data-k="b"><svg viewBox="0 0 96 28"><g fill="#45433f"><circle cx="62" cy="16" r="3"/><circle cx="74" cy="16" r="3"/><circle cx="86" cy="16" r="3"/></g><g fill="#e08a69"><circle cx="10" cy="16" r="3"/><circle cx="26" cy="16" r="3"/><circle cx="38" cy="16" r="3"/><circle cx="50" cy="16" r="5"/></g><path d="M40 5h20" stroke="#7f7d75" stroke-width="3" stroke-linecap="round" opacity=".6"/></svg></button>
+      <button data-k="c"><svg viewBox="0 0 96 28"><path d="M6 8h84" stroke="#45433f"/><path d="M6 8v11M18 8v4M30 8v11M42 8v4M54 8v4M66 8v11M78 8v4" stroke="#7f7d75"/><path d="M6 8h40" stroke="#e08a69" stroke-width="2"/><path d="M46 1v16" stroke="#e08a69" stroke-width="2"/><path d="M10 24h10M34 24h14M70 24h10" stroke="#7f7d75" stroke-width="3" stroke-linecap="round" opacity=".6"/></svg></button>
+    </div>
+  </aside>
+  <!-- 薄弱点：一行一个小节，三列数（错 / 不会 / 没懂几步，表头只有小图），点一行展开这一节的题 -->
+  <div class="weak" id="weak"><button class="ic close" id="weakClose" data-aria="ui.close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    <h2 data-t="ui.weak.title"></h2>
+    <div class="whead"><span></span>
+      <i class="no" data-aria="ui.weak.wrong" role="img"><svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></svg></i>
+      <i class="sk" data-aria="ui.weak.skip" role="img"><svg viewBox="0 0 24 24"><path d="M9.2 9a3 3 0 1 1 4.3 2.7c-.9.5-1.5 1.2-1.5 2.3M12 17.6v.1"/></svg></i>
+      <i class="fl" data-aria="ui.weak.flags" role="img"><svg viewBox="0 0 24 24"><path d="M6 21V4h11l-2 4 2 4H6"/></svg></i>
+      <i class="mk" data-aria="ui.mock.stat" role="img"><svg viewBox="0 0 24 24"><path d="M6.5 7v10M17.5 7v10M3.5 9.5v5M20.5 9.5v5M6.5 12h11"/></svg></i>
+    </div>
+    <div id="wkList"></div>
+  </div>
+  <div class="sheet" id="sheet"><button class="ic close" id="sheetClose" data-aria="ui.close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button><div class="pages" id="pages"></div></div>
+  <!-- 气泡点开的面板（kit/ask.js）：竖屏从下方升起、横屏靠右一栏，不盖大画面的手势；把手拖着调高度 / 宽度，右上角 × 关掉（点画面不关、也不翻步）。
+       两个分页：问答（像聊天：这道题的对话按步分组、常用问法、引用条、输入框；顶上是做好的重讲）、课有问题（报修表单和这道题的报修列表） -->
+  <div class="fbp" id="fbp">
+    <div class="fbgrab" id="fbGrab" data-aria="ui.ask.grab" role="separator"><i></i></div>
+    <header class="fbhead">
+      <div class="fbtabs" role="tablist"><button data-tab="ask" role="tab" data-t="ui.ask.tab"></button><button data-tab="rep" role="tab" data-t="ui.report.tab"></button></div>
+      <button class="ic" id="fbWide" data-aria="ui.ask.wide"><svg viewBox="0 0 24 24"><path class="w1" d="M14 4h6v6M20 4l-6.5 6.5M10 20H4v-6M4 20l6.5-6.5"/><path class="w2" d="M19 10h-5V5M14 10l6-6M5 14h5v5M10 14l-6 6"/></svg></button>
+      <button class="ic" id="fbMin" data-aria="ui.ask.min"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </header>
+    <div class="fbnote" id="fbNote"></div>
+    <section class="fbpane akpane" data-pane="ask">
+      <div class="aklog" id="akLog"><div id="akThreads"></div></div>
+      <div class="akfoot">
+        <p class="akwarn" id="akWarn" data-t="ui.ask.nobody"></p>
+        <div class="akqbar" id="akQbar"><span id="akQtext"></span><button class="ic" id="akQx" data-aria="ui.ask.quoteX"><svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></svg></button></div>
+        <div class="fbin"><textarea id="fbText" rows="2" data-ph="ui.ask.ph"></textarea><button class="ic" id="fbSend" data-aria="ui.fb.send"><svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button></div>
+      </div>
+    </section>
+    <section class="fbpane rppane" data-pane="rep">
+      <p class="rpoff" id="rpOff" data-t="ui.report.offline"></p>
+      <!-- 各条提醒（别的题有新回答、改好了去换新版）和做好的重讲，2026-11-22 从问答分页顶上挪到这里 -->
+      <div class="fbnote rpnote" id="rpNote"></div>
+      <div class="rpredo"><h3 data-t="ui.report.redos"></h3><div class="rds" id="rds"></div></div>
+      <div class="rpform">
+        <h3 data-t="ui.report.kind"></h3><div class="rpk" id="rpKind"></div>
+        <h3 data-t="ui.report.scopeT"></h3><div class="rps" id="rpScope"><button data-s="step" data-t="ui.report.scope.step"></button><button data-s="whole" data-t="ui.report.scope.whole"></button></div>
+        <div class="fbin"><textarea id="rpText" rows="2" data-ph="ui.report.ph"></textarea></div>
+        <button class="rpgo" id="rpSend" data-t="ui.report.send"></button>
+      </div>
+      <h3 data-t="ui.report.list"></h3>
+      <div class="rpl" id="rpList"></div>
+    </section>
+  </div>
+  <!-- 问答里的出处：点了看书页图（双指或按钮放大，点图外或右上角 × 关掉）；长按讲稿 / 画面上的框冒出的“问这里” -->
+  <div class="akpg" id="akPg"><button class="ic close" id="akPgX" data-aria="ui.close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button><div class="akpgin" id="akPgIn"><img id="akPgImg" alt="" draggable="false"></div><div class="akpgz"><button class="ic" data-z="-1" data-aria="ui.ask.zoomOut"><svg viewBox="0 0 24 24"><path d="M6 12h12"/></svg></button><button class="ic" data-z="1" data-aria="ui.ask.zoomIn"><svg viewBox="0 0 24 24"><path d="M6 12h12M12 6v12"/></svg></button></div></div>
+  <button class="akhere" id="akHere" data-t="ui.ask.here"></button>
+  <div class="toast" id="toast"></div>
+</div>
+<script src="vendor/gsap.min.js"></script>
+<script src="kit/player.js?v=10"></script>
+<script src="kit/draw.js?v=8"></script>
+<script src="kit/sections.js?v=16"></script>
+<script src="vendor/katex/katex.min.js"></script>
+<script src="kit/math.js?v=7"></script>
+<script src="kit/big.js?v=2"></script>
+<script src="kit/redo.js?v=1"></script>
+<script src="kit/read.js?v=6"></script>
+<script src="kit/xin.js?v=12"></script>
+<script src="kit/phone.js?v=2"></script>
+<script src="kit/shell.js?v=39"></script>
+<script src="kit/mock.js?v=3"></script>
+<script src="kit/ask.js?v=8"></script>
+<script src="kit/draft.js?v=9"></script>
+</body>
+</html>

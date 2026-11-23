@@ -1,0 +1,69 @@
+/* kit/theme.css：白天那一套（kit/theme.js 在 <html> 上写 data-theme="day"）。夜间就是 shell.css 原样，这里一条都不碰。
+   底色是暖白纸色，字是近黑的暖墨；橙、蓝、绿、红各压深一档，保证在纸色上对比度 ≥ 4。
+   写死在各 css 里的深色（发光、深色背板、深色压暗的图）在这里逐条换；画面里 Kit.C 的颜色由 theme.js 换，kit 里写死的几种在这里按属性值换。 */
+html[data-theme=day] {
+  --bg: #f4f1ea; --surface: #ebe7de; --surface2: #e1dcd0; --ink: #1f1d1a; --ink2: #3b3833; --muted: #5c584f; --faint: #736e63;
+  --line: #d6cfc2; --line2: #c3bbac; --acc: #b85a33; --acc-soft: rgba(184, 90, 51, .12); --on-acc: #fffaf6;
+  --blue: #2b64a3; --ok: #2a7f4a; --ok-soft: rgba(42, 127, 74, .13); --no: #bd3d35;
+  --inv: invert(1) hue-rotate(180deg) brightness(1.08);   /* 深色处理过的图（书页、原卷 q_dark、裁出的小图）翻回纸色 */
+  color-scheme: light;
+}
+html[data-theme=day] body { background: var(--bg); }
+
+/* ---- 外壳里写死的深色 ---- */
+html[data-theme=day] .mods button.on { color: var(--bg); }
+html[data-theme=day] .tip { color: var(--bg); }
+html[data-theme=day] .opt[data-v=ok] b, html[data-theme=day] .opt.me[data-v=no] b { color: #fff; }
+html[data-theme=day] .opt.me[data-v=no], html[data-theme=day] .mopt[data-v=no] { background: rgba(189, 61, 53, .09); }
+html[data-theme=day] .cell[data-s=no] { background: rgba(189, 61, 53, .12); }
+html[data-theme=day] .scrim { background: rgba(40, 34, 26, .28); }
+html[data-theme=day] .sheet { background: rgba(236, 232, 224, .97); }
+html[data-theme=day] .akpg { background: rgba(236, 232, 224, .94); }
+html[data-theme=day] .bigscan { background: var(--surface); }
+html[data-theme=day] .scene .glow { filter: drop-shadow(0 0 5px rgba(31, 29, 26, .28)); }
+html[data-theme=day] .fbp { box-shadow: 0 10px 34px rgba(60, 48, 30, .18); }
+html[data-theme=day] .akhere { box-shadow: 0 6px 20px rgba(60, 48, 30, .25); }
+html[data-theme=day] .xcl a, html[data-theme=day] .xd { background: rgba(43, 100, 163, .08); }
+html[data-theme=day] .xw.on { background: rgba(43, 100, 163, .12); }
+html[data-theme=day] .akstep { background: rgba(43, 100, 163, .09); }
+html[data-theme=day] .akcite { border-color: rgba(43, 100, 163, .4); }
+html[data-theme=day] .barpick circle[fill="#f0efec"] { fill: var(--ink); }
+html[data-theme=day] .barpick path[stroke="#45433f"] { stroke: var(--line2); }
+html[data-theme=day] .barpick g[fill="#45433f"] { fill: var(--line2); }
+html[data-theme=day] .barpick [stroke="#e08a69"] { stroke: var(--acc); }
+html[data-theme=day] .barpick [fill="#e08a69"] { fill: var(--acc); }
+
+/* ---- 数学题、综合题的板书：黑底上的发光去掉，标注的黑描边换成纸色描边 ---- */
+html[data-theme=day] .mxb .katex, html[data-theme=day] .bkcalc .katex, html[data-theme=day] .mxans .katex { text-shadow: none; }
+html[data-theme=day] .mxlab { text-shadow: 0 0 6px var(--bg), 0 0 3px var(--bg); }
+html[data-theme=day] .mxc-chip { color: var(--ink); }
+html[data-theme=day] .mxlab:not(.axis) { filter: brightness(.6) saturate(1.3); }   /* 3D 图、平面图上的彩色标注（kit/math.js 的 3B1B 色板，按深底调的）：白天压深一档 */
+html[data-theme=day] .mxcard { box-shadow: 0 8px 26px rgba(60, 48, 30, .16); }
+html[data-theme=day] .mxbox, html[data-theme=day] .bkbox { box-shadow: 0 0 10px rgba(184, 90, 51, .35), inset 0 0 8px rgba(184, 90, 51, .12); }
+html[data-theme=day] #stage [style*="color: rgb(255, 215, 191)"] { color: var(--acc) !important; }   /* kit/math.js 框中的字变成的浅橙 */
+
+/* ---- 图：深色处理过的翻回纸色；夜间才反色的白底原图（.dim / .raw / .inv / read.js 带 filter 的）白天原样放。
+        书页浮层（.sheet）里的书页、原卷本来就是白底扫描件，两套都原样放 ---- */
+html[data-theme=day] .gatepic img, html[data-theme=day] .bigscan img, html[data-theme=day] .stem .sfig, html[data-theme=day] .mpg img:not(.inv) { filter: var(--inv); }
+html[data-theme=day] .gatepic.dim img, html[data-theme=day] .bigscan.raw img, html[data-theme=day] .mpg img.inv { filter: none; }
+html[data-theme=day] #stage image:not([filter]) { filter: var(--inv); }
+html[data-theme=day] #stage image[filter] { filter: none; }
+
+/* ---- 画面里 kit 写死的几种深色（按属性值换；遮罩 mask 里的黑白不动） ---- */
+html[data-theme=day] #stage :not(mask) > [fill="#0b0b0a" i] { fill: #f7f4ee; }      /* 书页框外的压暗：白天是一层纸色的淡雾 */
+html[data-theme=day] #stage [fill="#242320" i] { fill: #f1eeea; }                    /* 书页底的纸色 */
+html[data-theme=day] #stage [fill="#181817" i] { fill: #fbfaf6; }                    /* 综合题代码块的底 */
+html[data-theme=day] #stage [fill="#1b1b1a" i] { fill: #fbfaf6; }
+html[data-theme=day] #stage [fill="#2b2418" i] { fill: #f6ead3; }                    /* 逐项判断里“陷阱”提示框 */
+html[data-theme=day] #stage [fill="#3a2020" i] { fill: #f5d9d6; }                    /* units/co-5.3.4 判错的格子（深红底） */
+html[data-theme=day] #stage [style*="fill: rgb(58, 32, 32)"] { fill: #f5d9d6 !important; }
+html[data-theme=day] #stage [stroke="#d9a441" i] { stroke: #9a6a12; }
+html[data-theme=day] #stage text[fill="#d9a441" i] { fill: #8a5d0c; }
+
+/* ---- 选题抽屉顶上的昼夜按钮：在补练、薄弱点两个小图标的左边 ---- */
+.thbtn { position: absolute; top: 12px; right: 56px; width: 42px; height: 42px; }
+.thbtn::before { content: ''; position: absolute; inset: -2px; }
+.thbtn svg { width: 21px; height: 21px; }
+.drawer:has(.mkbtn.on) .thbtn { right: 102px; }
+.drawer .nvh { margin-right: 100px; }
+.drawer:has(.mkbtn.on) .nvh { margin-right: 146px; }

@@ -1,0 +1,18 @@
+# XcodeGen 生成的工程，不进仓库
+*.xcodeproj/
+*.xcworkspace/
+
+# 构建产物
+build/
+DerivedData/
+ipa/
+*.ipa
+xcodebuild.log
+
+# Xcode 用户数据
+xcuserdata/
+*.xcuserstate
+
+# 系统垃圾
+.DS_Store
+Thumbs.db

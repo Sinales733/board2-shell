@@ -1,0 +1,62 @@
+/* kit/draft.js 的草稿纸：一层盖满整页的纸（透明度可调）+ 画布，都不接手指；工具条和右上角的按钮在最上层。
+   纸在左栏、画面、进度条上面（z 45），在选题抽屉、问答面板、原卷 / 书页这些浮层下面，浮层照常用；颜色只用 shell.css / theme.css 的变量。 */
+.draft { position: fixed; inset: 0; z-index: 45; pointer-events: none; display: none; }
+.draft.on { display: block; }
+.draft .dpaper { position: absolute; inset: 0; background: var(--surface); opacity: var(--da, 1); }
+html[data-theme=day] .draft .dpaper { background: #fbf9f4; }
+.draft .dcv { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }   /* 双指挪动中先把位图整张变换过去（kit/draft.js），停下再矢量重画 */
+
+/* 右上角的按钮：kit/draft.js 把它放进问答气泡那一组（.fbx，shell.css）的最左边，和气泡同一个 flex 里排版，面板开关时一起走，不再用定时器量气泡的位置去追。
+   层：在草稿纸（45）上面，在问答面板（55）、原卷 / 书页（60）、出处书页（68）下面：那些浮层盖住气泡时也同样盖住它，不用另外判断藏不藏 */
+.fbx .dbtn { z-index: 52; transition: color var(--t-mid), opacity var(--t-mid), background var(--t-mid), transform var(--m-fast); }
+.dbtn.open { opacity: 1; color: var(--acc); background: var(--acc-soft); }
+
+/* 工具条：竖着一条，贴左边或右边 */
+.dtool { position: fixed; left: 0; top: 0; z-index: 72; display: none; flex-direction: column; align-items: center; gap: 2px; width: 52px; padding: 4px 3px 6px; border-radius: 16px;
+  background: var(--surface); border: 1px solid var(--line2); box-shadow: 0 8px 26px rgba(0, 0, 0, .35); touch-action: none; }
+html[data-theme=day] .dtool { box-shadow: 0 8px 24px rgba(60, 48, 30, .18); }
+.dtool.on { display: flex; }
+/* 位置用 transform（kit/draft.js 的 layout 写 --dx/--dy）：松手贴边、给问答面板让位都和面板同一档时长、同一条缓动，同一帧起步；拖着走的时候不要过渡 */
+.dtool { transform: translate(var(--dx, 0px), var(--dy, 0px)); transition: transform var(--m-big) var(--ease), opacity var(--t-fast); }
+.dtool.moving { opacity: .85; transition: opacity var(--t-fast); }
+.dtool.jump { transition: none; }
+.dtool.fbsize { transition: opacity var(--t-fast); }   /* 正在拖问答面板的把手：工具条跟着手走，不过渡 */
+.dtool .ic { width: 44px; height: 44px; border-radius: 12px; }
+.dtool .ic svg { width: 22px; height: 22px; }
+.dtool .ic.on { color: var(--acc); background: var(--acc-soft); }
+.dtool .ic:disabled { opacity: .3; }
+.dgrip { width: 44px; height: 26px; display: grid; place-items: center; color: var(--faint); cursor: grab; touch-action: none; }
+.dgrip svg { width: 20px; height: 20px; fill: currentColor; stroke: none; transform: rotate(90deg); }
+.dcol i, .dpal i { display: block; width: 20px; height: 20px; border-radius: 50%; box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--line2); }
+/* 缩放比例：点它回到 100%、回到有笔迹的地方（无限画布，2026-11-22 换掉原来的翻页） */
+.dzm { width: 44px; height: 34px; border-radius: 10px; display: grid; place-items: center; font: 700 12px/1 var(--mono); color: var(--muted); letter-spacing: -.02em; transition: background var(--t-mid), color var(--t-mid), transform var(--m-fast); }
+.dzm span { white-space: nowrap; }
+/* Apple Pencil 双击切笔 / 橡皮：被切到的那个按钮闪一下 */
+.dtool .ic.flash { animation: dflash var(--t-big) var(--ease); }
+@keyframes dflash { 0% { transform: scale(1); } 40% { transform: scale(var(--dfs, 1.16)); box-shadow: 0 0 0 3px var(--acc-soft); } 100% { transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .dtool .ic.flash { --dfs: 1; } }
+/* 透明度竖条：顶上是不透明的纸 */
+.dal { position: relative; width: 44px; height: 104px; margin: 4px 0; touch-action: none; cursor: ns-resize; }
+.dal i { position: absolute; left: 50%; top: 8px; bottom: 8px; width: 6px; margin-left: -3px; border-radius: 3px; background: linear-gradient(var(--ink2), transparent); border: 1px solid var(--line2); }
+.dal b { position: absolute; left: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; top: calc(8px + (1 - var(--v, 1)) * (100% - 16px)); border-radius: 50%; background: var(--ink); box-shadow: 0 1px 4px rgba(0, 0, 0, .35); }
+/* 透明度竖条的标识（2026-11-23）：竖条左下角一个极小的半实心圆（= 透明度），和下面显示“100%”的缩放比例区分开。
+   绝对定位、不占位，不动工具条布局；不接触摸（拖竖条照旧） */
+.dal::after { content: ''; position: absolute; left: 1px; bottom: 4px; width: 10px; height: 10px; box-sizing: border-box; border-radius: 50%;
+  border: 1.5px solid var(--faint); background: linear-gradient(90deg, var(--faint) 50%, transparent 50%); pointer-events: none; }
+/* 小弹层：颜色、更多，开在工具条朝屏幕里面那一侧 */
+.dpop { position: absolute; display: none; gap: 4px; padding: 4px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line2); box-shadow: 0 8px 24px rgba(0, 0, 0, .3); }
+.dpop.on { display: flex; }
+.dtool[data-side=r] .dpop { right: calc(100% + 8px); }
+.dtool[data-side=l] .dpop { left: calc(100% + 8px); }
+.dpal .ic.on { background: var(--surface2); }
+.dmore { flex-direction: column; align-items: stretch; width: max-content; }
+.dclr, .dfin { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 12px; border-radius: 10px; font-size: 15px; color: var(--ink2); white-space: nowrap; text-align: left; }
+.dclr svg { width: 21px; height: 21px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.dclr { transition: color var(--t-mid), background var(--t-mid), box-shadow var(--t-mid); }   /* 清空的确认态：出现和恢复一样淡入淡出 */
+.dclr.sure { color: var(--ink); background: rgba(229, 118, 111, .16); box-shadow: inset 0 0 0 1.5px var(--no); font-weight: 700; }
+.dfin span { flex: 1; }
+.dfin i { position: relative; flex: none; width: 40px; height: 24px; border-radius: 12px; background: var(--line2); transition: background var(--t-mid); }
+.dfin i::after { content: ''; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--bg); transition: transform var(--m-mid) var(--ease); }
+.dfin.on i { background: var(--acc); }
+.dfin.on i::after { transform: translateX(16px); background: var(--on-acc); }
+
