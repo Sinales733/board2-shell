@@ -21,6 +21,8 @@ final class InkDiag {
     /// 同一种高频事件（取景窗变化）只记个数，攒到下一条别的事件前一起写一行。
     private var viewCount = 0
     private var lastView = ""
+    /// 草稿纸开着时记每一下触摸落在哪个视图上（DiagWindow）
+    var touchLogging = false
     let session = String(format: "%04x", UInt16.random(in: 0...0xffff))
 
     private init() {

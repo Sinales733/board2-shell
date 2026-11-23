@@ -152,8 +152,8 @@ final class ShotsUITests: XCTestCase {
         let W = (web()["W"] as? Double) ?? 820, H = (web()["H"] as? Double) ?? 1180
         let origin = app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
         func at(_ x: Double, _ y: Double) -> XCUICoordinate { origin.withOffset(CGVector(dx: x, dy: y)) }
-        func drag(_ a: (Double, Double), _ b: (Double, Double), velocity: CGFloat = 500) {
-            at(a.0, a.1).press(forDuration: 0.05, thenDragTo: at(b.0, b.1), withVelocity: XCUIGestureVelocity(velocity), thenHoldForDuration: 0.05)
+        func drag(_ a: (Double, Double), _ b: (Double, Double), velocity: CGFloat = 300, press: TimeInterval = 0.05, hold: TimeInterval = 0.05) {
+            at(a.0, a.1).press(forDuration: press, thenDragTo: at(b.0, b.1), withVelocity: XCUIGestureVelocity(velocity), thenHoldForDuration: hold)
             Thread.sleep(forTimeInterval: 0.5)
         }
         func tapRect(_ r: [Double]?) -> Bool {
@@ -173,16 +173,18 @@ final class ShotsUITests: XCTestCase {
             return nil
         }
         /// 最后一笔第一个点、最后一个点离拖动起止点多远（屏幕上的点）
-        func lastErr(_ a: (Double, Double), _ b: (Double, Double)) -> Double {
-            guard let ss = native()["strokes"] as? [[Double]], let s = ss.last, s.count == 4 else { return 9999 }
-            return max(hypot(s[0] - a.0, s[1] - a.1), hypot(s[2] - b.0, s[3] - b.1))
+        func lastErr(_ a: (Double, Double), _ b: (Double, Double)) -> (Double, Double) {
+            guard let ss = native()["strokes"] as? [[Double]], let s = ss.last, s.count == 4 else { return (9999, 9999) }
+            return (hypot(s[0] - a.0, s[1] - a.1), hypot(s[2] - b.0, s[3] - b.1))
         }
+        /// 终点必须对准（< 18 点，查取景窗换算对不对）；起点放宽到 < 60：PencilKit 认手指画画要先等一下分辨是不是挪纸（系统行为），
+        /// 模拟器里的拖动一按下就开始走，开头一小段会被吃掉。真机用笔没有这一等。
         func write(_ label: String, _ a: (Double, Double), _ b: (Double, Double)) {
             let before = count()
-            drag(a, b)
+            drag(a, b, velocity: 250, press: 0.3)
             let after = waitCount(before + 1)
-            let err = lastErr(a, b)
-            step(label, after == before + 1 && err < 18, "count \(before)->\(after) pos err \(Int(err))")
+            let (es, ee) = lastErr(a, b)
+            step(label, after == before + 1 && ee < 18 && es < 60, "count \(before)->\(after) start err \(Int(es)) end err \(Int(ee))")
         }
         /// 网页旧稿的取景窗和画布的一样（旧稿跟着画布走）
         func viewsMatch() -> (Bool, String) {
@@ -238,6 +240,9 @@ final class ShotsUITests: XCTestCase {
         step("open: tap on option is blocked", optR != nil && clicks1 == clicks0 && count() == kept, "clicks \(clicks0)->\(clicks1) opt=\(optR ?? [])")
         let tg = native()["toggle"] as? [Double]
         _ = tapRect(tg)
+        if (web()["open"] as? Bool) != false {
+            try? app.debugDescription.write(to: outDir.appendingPathComponent("\(name)-toggle-tree.txt"), atomically: true, encoding: .utf8)
+        }
         step("toggle closes (one tap)", (web()["open"] as? Bool) == false && (native()["open"] as? Bool) == false && (native()["picker"] as? Bool) == false,
              "web=\(web()["open"] ?? "nil") canvas=\(native()["open"] ?? "nil") toggle=\(tg ?? [])")
         _ = tapRect(optR)
@@ -249,7 +254,7 @@ final class ShotsUITests: XCTestCase {
 
         // 只认笔时单指拖动挪纸：取景窗跟着手指走，没有多出笔画，网页旧稿跟着走
         let v0 = nview()
-        drag((x0 + 40, ys[2]), (x0 + 140, ys[2] + 90))
+        drag((x0 + 40, ys[2]), (x0 + 140, ys[2] + 90), velocity: 200, hold: 0.8)
         Thread.sleep(forTimeInterval: 1.2)
         let v1 = nview()
         let moved = v0.count == 3 && v1.count == 3 && abs((v1[0] - v0[0]) - 100) < 25 && abs((v1[1] - v0[1]) - 90) < 25

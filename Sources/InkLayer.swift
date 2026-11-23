@@ -166,12 +166,19 @@ final class InkLayer: NSObject {
             viewSettled = false
             load()
         }
-        if !viewSettled, let v = body["view"] as? [String: Any], let x = v["x"] as? Double, let y = v["y"] as? Double, let z = v["z"] as? Double,
+        if let v = body["view"] as? [String: Any], let x = v["x"] as? Double, let y = v["y"] as? Double, let z = v["z"] as? Double,
            x.isFinite, y.isFinite, z.isFinite, z > 0 {
-            setView(x: CGFloat(x), y: CGFloat(y), z: CGFloat(z))
+            if !viewSettled {
+                setView(x: CGFloat(x), y: CGFloat(y), z: CGFloat(z))
+            } else {
+                // 取景窗已由画布定：网页那边的（比如它读完旧稿又按旧稿摆了一次）对不上就再告诉它一遍
+                let n = view
+                if abs(CGFloat(x) - n.x) > 0.5 || abs(CGFloat(y) - n.y) > 0.5 || abs(CGFloat(z) - n.z) > 0.0005 { tellWebView() }
+            }
         }
         if open != isOpen {
             isOpen = open
+            InkDiag.shared.touchLogging = open
             canvas.isHidden = !open
             if open {
                 canvas.becomeFirstResponder()
@@ -457,14 +464,20 @@ final class InkLayer: NSObject {
                             self.saveNow {
                                 self.drawSample()
                                 self.saveNow {
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                                        self.store.debugCompare(testId) { info in
-                                            out.merge(info) { a, _ in a }
-                                            self.id = saveId; self.isOpen = saveOpen
-                                            self.load()
-                                            done(out)
+                                    // 上传要排队（同一道题同一时间只传一份），等它传完：最多等 12 秒，对上了就停
+                                    func check(_ left: Int) {
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                            self.store.debugCompare(testId) { info in
+                                                if (info["serverMatchesLocal"] as? Bool) != true && left > 0 { check(left - 1); return }
+                                                out.merge(info) { a, _ in a }
+                                                out["compareTries"] = 6 - left
+                                                self.id = saveId; self.isOpen = saveOpen
+                                                self.load()
+                                                done(out)
+                                            }
                                         }
                                     }
+                                    check(5)
                                 }
                             }
                         }
