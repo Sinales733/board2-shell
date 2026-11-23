@@ -275,7 +275,7 @@ final class ShotsUITests: XCTestCase {
         let (vm, vnote) = viewsMatch()
         step("old draft follows canvas", vm, vnote)
         let zz0 = nview().last ?? 1
-        app.pinch(withScale: 1.8, velocity: 1.5)
+        app.pinch(withScale: 0.6, velocity: -1.0)   // 捏合（两指从远处往中间收）：起点两指隔得开，滚动视图稳定认成缩放
         Thread.sleep(forTimeInterval: 1.5)
         let zz1 = nview().last ?? 1
         step("pinch zoom: no stroke, toolbar still there", count() == kept && abs(zz1 - zz0) > 0.15 && toolbarOK(), "count \(kept)->\(count()) z \(zz0)->\(zz1)")
@@ -290,17 +290,14 @@ final class ShotsUITests: XCTestCase {
         let pOff = native()["policy"] as? String ?? "?"
         step("finger switch off -> pencilOnly", ok && (web()["finger"] as? Bool) == false && pOff == "pencilOnly" && c1 == c0, "web finger=\(web()["finger"] ?? "nil") policy=\(pOff)")
         _ = tapRect([z.x0 + 60, z.ys[3], 10, 10])   // 点纸收起“更多”
-        // 拖手柄：工具条换到另一边，纸上不多笔画
-        let side0 = web()["side"] as? String ?? "?"
-        if let g = wbtn("grip"), g.count == 4 {
-            let (W, _) = wh()
+        // 拖手柄：往下拖 150 点，工具条跟着往下挪（松手贴回同一边），纸上不多笔画
+        if let g = wbtn("grip"), g.count == 4, let d0 = web()["dtool"] as? [Double], d0.count == 4 {
             let c = count()
-            // 拖过屏幕中线一段就够换边（松手时贴最近的一边）
-            drag((g[0] + g[2] / 2, g[1] + g[3] / 2), (side0 == "r" ? W * 0.5 - 150 : W * 0.5 + 150, g[1] + g[3] / 2 + 40), velocity: 300, press: 0.2, hold: 0.2)
+            drag((g[0] + g[2] / 2, g[1] + g[3] / 2), (g[0] + g[2] / 2 - 30, g[1] + g[3] / 2 + 150), velocity: 300, press: 0.2, hold: 0.2)
             Thread.sleep(forTimeInterval: 1.0)
-            let side1 = web()["side"] as? String ?? "?"
-            step("drag grip moves toolbar, no stroke", side1 != side0 && count() == c && toolbarOK(), "side \(side0)->\(side1) count \(c)->\(count())")
-            if let g2 = wbtn("grip") { let (W2, _) = wh(); drag((g2[0] + g2[2] / 2, g2[1] + g2[3] / 2), (side1 == "r" ? W2 * 0.5 - 150 : W2 * 0.5 + 150, g2[1] + g2[3] / 2), velocity: 300, press: 0.2, hold: 0.2) }
+            let d1 = web()["dtool"] as? [Double] ?? d0
+            step("drag grip moves toolbar, no stroke", d1[1] - d0[1] > 60 && count() == c && toolbarOK(), "toolbar top \(Int(d0[1]))->\(Int(d1[1])) count \(c)->\(count())")
+            if let g2 = wbtn("grip") { drag((g2[0] + g2[2] / 2, g2[1] + g2[3] / 2), (g2[0] + g2[2] / 2, g2[1] + g2[3] / 2 - 150), velocity: 300, press: 0.2, hold: 0.2) }
             Thread.sleep(forTimeInterval: 1.0)
         } else { step("drag grip moves toolbar, no stroke", false, "no grip rect") }
 
@@ -342,8 +339,11 @@ final class ShotsUITests: XCTestCase {
         _ = tapRect(pageR)
         let p2 = web()["clicks"] as? Int ?? -1
         step("closed: first tap on page works", p2 > p1, "page pointerdowns \(p1)->\(p2)")
+        // 点到的那一下如果让网页弹出了面板、盖住了草稿纸按钮，App 的按钮会跟着藏（设计如此）：换一下题把面板收掉再点按钮
+        var covered = ""
+        if (native()["toggleHidden"] as? Bool) == true { covered = " (page tap covered the button; reset by goto)"; cmd("goto 2009-01"); Thread.sleep(forTimeInterval: 1.5) }
         let t3 = tapToggle()
-        step("reopen by button (one tap), strokes kept", t3 && (web()["open"] as? Bool) == true && waitCount(n0) == n0 && prints() == keptPrints && toolbarOK(), "count ->\(count())")
+        step("reopen by button (one tap), strokes kept", t3 && (web()["open"] as? Bool) == true && waitCount(n0) == n0 && prints() == keptPrints && toolbarOK(), "count ->\(count())" + covered)
 
         // ---- 换题再换回来：比指纹 ----
         cmd("finger on")
