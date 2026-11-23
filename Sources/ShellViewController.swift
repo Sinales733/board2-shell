@@ -1132,7 +1132,9 @@ final class DiagRootView: UIView {
         let v = super.hitTest(point, with: event)
         if let e = event, e.type == .touches, e.timestamp != lastStamp, InkDiag.shared.touchLogging || ShotMode.isOn {
             lastStamp = e.timestamp
-            InkDiag.shared.log("hit \(InkDiag.pt(point)) -> \(v.map { String(describing: type(of: $0)) } ?? "nil")")
+            var chain: [String] = [], cur = v
+            while let c = cur, chain.count < 5 { chain.append(String(describing: type(of: c))); cur = c.superview }
+            InkDiag.shared.log("hit \(InkDiag.pt(point)) -> \(chain.isEmpty ? "nil" : chain.joined(separator: "<"))")
         }
         return v
     }

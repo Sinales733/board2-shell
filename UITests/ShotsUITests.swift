@@ -209,6 +209,13 @@ final class ShotsUITests: XCTestCase {
         let n = o == "portrait" ? 5 : 2
         for i in 0..<n { write("finger stroke \(i + 1)", (x0, ys[i]), (x1, ys[i] + 20)) }
         if o == "landscape" {
+            // 对照：草稿纸收着时点页面中部，页面能不能收到 pointerdown（看测试环境本身点不点得到网页）
+            cmd("close")
+            let b0 = web()["clicks"] as? Int ?? -1
+            at(W * 0.62 + 20, H * 0.5 + 20).tap(); Thread.sleep(forTimeInterval: 1.0)
+            let b1 = web()["clicks"] as? Int ?? -1
+            step("baseline: closed (via cmd), tap on page reaches page", b1 > b0, "page pointerdowns \(b0)->\(b1)")
+            cmd("open")
             let (vm, note) = viewsMatch()
             step("old draft follows canvas", vm, note)
             app.terminate(); return steps
