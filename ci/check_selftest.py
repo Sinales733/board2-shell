@@ -54,6 +54,8 @@ check(on.get("undoPersisted") is True, "在线：撤销没存盘（第 1 条）"
 check(on.get("serverMatchesLocal") is True, f"在线：电脑上留的不是最新那份 {on.get('serverT')} vs {on.get('localT')}（第 3、23 条）")
 check(on.get("tIsInteger") is True, "在线：时间不是整数毫秒（第 24 条）")
 check(on.get("idleTimerDisabled") is True, "在线：屏幕常亮没打开（第 13 条）")
+check(on.get("mergeRoundTrip") is True, f"在线：存盘读回再合并，笔画变多了（creationDate 全精度相等={on.get('creationDateExactAfterRoundTrip')}）")
+check(on.get("legacyReadSame") is True, f"在线：旧笔迹样本读出来不一样（来源 {on.get('legacySource')}，读到 {on.get('legacyStrokes')} 笔）")
 
 off = load("selftest-offline.json")
 check(off.get("ready") is True, "离线：页面没就绪")
@@ -82,7 +84,7 @@ for t in ("night", "day"):
 
 ink = load("inktest.json")
 steps = ink.get("steps") or []
-check(len(steps) >= 20, f"真实触摸写字：步骤不全（{len(steps)} 步）")
+check(len(steps) >= 80, f"真实触摸写字：步骤不全（{len(steps)} 步）")
 for st in steps:
     check(st.get("ok") is True, f"真实触摸写字 {st.get('name')}：{st.get('note')}")
 

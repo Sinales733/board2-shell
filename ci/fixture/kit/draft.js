@@ -42,7 +42,12 @@
      v9（2026-11-23，配 App 1.8）：App 改成正规用 PencilKit——草稿纸打开时 App 的画布盖在最上面自己接触摸（笔写字、手指挪纸、双指缩放），
      工具用苹果自带的工具盘，开关用 App 自己的按钮。这里在 App 里只剩：纸（透明度沿用上次的值）、旧 v2 笔迹只读垫底、每题一份、开关状态和题号告诉 App。
      不拦、不吞、不 preventDefault 任何触摸，不发 cancel / down / view / undo / clear；取景窗由 App 定（native.at），这里跟着画旧稿；
-     工具条 #dtool 不显示，草稿纸按钮只占位（App 的按钮盖在同一个地方）。浏览器（Safari）里一切照旧。 */
+     工具条 #dtool 不显示，草稿纸按钮只占位（App 的按钮盖在同一个地方）。浏览器（Safari）里一切照旧。
+     v10（2026-11-24，配 App 1.8）：App 里也用这条工具条（不用苹果的工具盘）：笔 / 橡皮 / 颜色 / 手指书写跟着状态消息发给 App，
+     撤销、清空、缩放比例发给 App 做；App 回报能不能撤销（native.update）。工具条和展开的小弹层所在的地方 App 的画布让出来给这里。
+     清空从“更多”挪到工具条第一层（Safari 里也一样），两次确认照旧：第一次点变成确认态（红框 + 旁边一句 ui.draft.clearSure），4 秒内再点才清。
+     App 里清空 = App 的新笔迹 + 这里垫底的旧 v2 笔迹一起清（旧的写回电脑），App 的撤销能把两样都恢复（本次打开期间）。
+     每点一下工具条告诉 App 一声（tap，带这边的时间），App 记诊断日志。 */
 (function () {
   'use strict';
   const $ = (s) => document.querySelector(s);
@@ -92,14 +97,15 @@
   tool.innerHTML = `<div class="dgrip" data-a="grip" role="separator">${svg('grip')}</div>`
     + `<button class="ic" data-a="pen">${svg('pen')}</button><button class="ic" data-a="eraser">${svg('eraser')}</button>`
     + `<button class="ic dcol" data-a="color"><i></i></button><button class="ic" data-a="undo">${svg('undo')}</button>`
+    + `<button class="ic dclr" data-a="clear">${svg('clear')}</button>`
     + '<div class="dal" data-a="alpha" role="slider" aria-valuemin="0" aria-valuemax="100"><i></i><b></b></div>'
     + '<button class="dzm" data-a="zoom"><span>100%</span></button>'
     + `<button class="ic" data-a="more">${svg('more')}</button><button class="ic" data-a="close">${svg('close')}</button>`
     + `<div class="dpop dpal" data-p="color">${COLORS.map((c) => `<button class="ic" data-c="${c}"><i></i></button>`).join('')}</div>`
-    + `<div class="dpop dmore" data-p="more"><button class="dclr" data-a="clear">${svg('clear')}<span></span></button>`
-    + '<button class="dfin" data-a="finger" role="switch"><span></span><i></i></button></div>';
+    + '<div class="dpop dmore" data-p="more"><button class="dfin" data-a="finger" role="switch"><span></span><i></i></button></div>'
+    + '<div class="dpop dsure" data-p="sure" aria-hidden="true"><span></span></div>';
   const T = (a) => tool.querySelector(`[data-a="${a}"]`);
-  if (NI()) { const st = document.createElement('style'); st.textContent = '#dtool{display:none!important}#draftBtn{visibility:hidden!important}'; document.head.appendChild(st); }   // 原生笔迹：工具条用 App 的工具盘，按钮用 App 的（盖在同一处）
+  if (NI()) { const st = document.createElement('style'); st.textContent = '#draftBtn{visibility:hidden!important}'; document.head.appendChild(st); }   // 原生笔迹：草稿纸按钮用 App 的（盖在同一处），这颗只占位
   function mount() { document.body.appendChild(root); placeBtn(); document.body.appendChild(tool); watchFb(); labels(); paintTool(); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount); else mount();
 
@@ -108,7 +114,9 @@
     btn.setAttribute('aria-label', U(D.open ? 'ui.draft.close' : 'ui.draft.open'));
     ['grip', 'pen', 'eraser', 'color', 'undo', 'alpha', 'more', 'close'].forEach((a) => set(T(a), 'ui.draft.' + a));
     tool.querySelectorAll('.dpal [data-c]').forEach((b) => set(b, 'ui.draft.c.' + b.dataset.c));
-    T('clear').querySelector('span').textContent = U(T('clear').classList.contains('sure') ? 'ui.draft.clearSure' : 'ui.draft.clear');
+    const sure = T('clear').classList.contains('sure');
+    T('clear').setAttribute('aria-label', U(sure ? 'ui.draft.clearSure' : 'ui.draft.clear'));
+    tool.querySelector('.dsure span').textContent = U('ui.draft.clearSure');
     T('finger').querySelector('span').textContent = U('ui.draft.finger');
     paintZoom(true); paintUndo();
   }
@@ -131,11 +139,12 @@
     const b = T('zoom'); b.querySelector('span').textContent = n + '%';
     b.setAttribute('aria-label', String(U('ui.draft.zoom') || '').replace('{n}', n));
   }
-  function paintUndo() { T('undo').disabled = !D.hist.length; }
+  const NV = { undo: false };   // App 回报的：新笔迹能不能撤销
+  function paintUndo() { T('undo').disabled = NI() ? !NV.undo : !D.hist.length; }
   /* 纸上面那几层（工具条、草稿纸按钮、弹层、问答面板、抽屉……）在屏幕上的位置：App 在这些地方不收笔、不显示新字 */
   function aboveRects() {
     const out = [], add = (el) => { if (!el) return; const r = el.getBoundingClientRect(); if (r.width > 0 && r.height > 0) out.push([r.left, r.top, r.width, r.height]); };
-    if (!NI()) { add(tool); add(btn); tool.querySelectorAll('.dpop.on').forEach(add); } add($('.toast.on'));
+    add(tool); if (!NI()) add(btn); tool.querySelectorAll('.dpop.on').forEach(add); add($('.toast.on'));
     ABOVE.forEach((k) => { const el = $(k); if (el && el.classList.contains('on')) add(el); });
     return out;
   }
@@ -145,7 +154,7 @@
     const br = btn.getBoundingClientRect();
     /* 网页的草稿纸按钮在 App 里只占位；它所在的地方被抽屉、问答面板这些层盖住时告诉 App，App 的按钮也跟着藏（和网页按钮被盖住一样） */
     let covered = false; try { covered = ABOVE.some((k) => { const el = $(k); if (!el || !el.classList.contains('on')) return false; const r = el.getBoundingClientRect(); return br.width > 0 && r.left < br.right && br.left < r.right && r.top < br.bottom && br.top < r.bottom; }); } catch (e) {}
-    const m = { k: 'state', open: D.open, id: D.open ? D.id : null, theme: theme(), view: { x: V.x, y: V.y, z: V.z }, rects: D.open ? aboveRects() : [],
+    const m = { k: 'state', open: D.open, id: D.open ? D.id : null, tool: ui.tool, color: ui.color, finger: !!ui.finger, theme: theme(), view: { x: V.x, y: V.y, z: V.z }, rects: D.open ? aboveRects() : [],
       btn: [br.left, br.top, br.width, br.height], covered, labels: { open: U('ui.draft.open'), close: U('ui.draft.close') } };
     const js = JSON.stringify(m); if (js === lastSent && !force) return; lastSent = js; tell(m);
   }
@@ -275,6 +284,11 @@
     D.dirty = !!(pick && ((pick === (local && local.doc) && D.server) || mig));   // 本机那份更新：待会儿补存到电脑上；旧格式迁移过来的：存成新格式
     D.migrated = mig ? { from: id, strokes: doc.s.length } : null;
     applyDocView(); paintUndo(); if (D.dirty) later();
+  }
+  function putV2() {
+    if (!D.doc || !D.id) return;
+    const doc = D.doc; doc.t = Date.now();
+    try { fetch('draft', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: D.id, doc }) }); } catch (e) {}
   }
   function later(ms) { clearTimeout(D.saveT); D.saveT = setTimeout(flush, ms || 1200); }
   function keepLocal(id, doc) { if (!store(LKEY + id, { doc })) return; if (!D.warned && B() && B().api) { D.warned = true; B().api.toast(U('ui.draft.local')); } }
@@ -563,11 +577,11 @@
 
   /* ---------- 工具条 ---------- */
   let sureT = 0;
-  const unsure = () => { clearTimeout(sureT); const c = T('clear'); if (c.classList.contains('sure')) { c.classList.remove('sure'); labels(); } };
+  const unsure = () => { clearTimeout(sureT); const c = T('clear'); if (c.classList.contains('sure')) { c.classList.remove('sure'); tool.querySelector('.dsure').classList.remove('on'); labels(); setTimeout(sync, 0); } };
   function closePops() { tool.querySelectorAll('.dpop.on').forEach((p) => p.classList.remove('on')); unsure(); }
   function pop(name, anchorEl) {
     const p = tool.querySelector(`.dpop[data-p="${name}"]`), was = p.classList.contains('on');
-    closePops(); if (was) return;
+    if (name !== 'sure') closePops(); if (was) return;
     p.style.top = Math.max(0, anchorEl.offsetTop + anchorEl.offsetHeight / 2 - 26) + 'px'; p.classList.add('on');
     const r = p.getBoundingClientRect(); if (r.bottom > innerHeight - 8) p.style.top = (parseFloat(p.style.top) - (r.bottom - innerHeight + 8)) + 'px';
   }
@@ -575,20 +589,27 @@
     const c = e.target.closest('[data-c]'); if (c) { ui.color = c.dataset.c; ui.tool = 'pen'; saveUI(); paintTool(); closePops(); return; }
     const b = e.target.closest('[data-a]'); if (!b || b.disabled) return;
     const a = b.dataset.a, doc = D.doc;
+    if (NI()) tell({ k: 'tap', a, t: Date.now() });   // App 记诊断日志：网页这边收到点击的时间
     if (a !== 'clear') unsure();
     if (a === 'pen' || a === 'eraser') { ui.tool = a; saveUI(); paintTool(); closePops(); }
     else if (a === 'color' || a === 'more') pop(a, b);
     else if (a === 'undo') { closePops(); undo(); }
-    else if (a === 'zoom') { closePops(); if (doc) flyTo(homeView()); }
+    else if (a === 'zoom') { closePops(); if (NI()) tell({ k: 'zoom100' }); else if (doc) flyTo(homeView()); }
     else if (a === 'clear') {
-      if (!b.classList.contains('sure')) { b.classList.add('sure'); labels(); clearTimeout(sureT); sureT = setTimeout(unsure, 4000); return; }   // 清空：第一次只变成“再点一次”，4 秒内再点才清
-      unsure(); if (doc && doc.s.length) { D.hist.push({ k: 'clear', s: doc.s }); doc.s = []; D.dirty = true; later(); render(); }
-      closePops();
+      if (!b.classList.contains('sure')) {   // 清空：第一次只变成确认态（红框 + 旁边一句），4 秒内再点才清
+        closePops(); b.classList.add('sure'); labels(); pop('sure', b); clearTimeout(sureT); sureT = setTimeout(unsure, 4000); setTimeout(sync, 0); return;
+      }
+      unsure(); closePops();
+      if (NI()) {   // App 里：App 清它的新笔迹（能撤销）；这里清垫底的旧笔迹，写回电脑，留一份给撤销
+        tell({ k: 'clear' });
+        if (doc && doc.s.length) { D.cleared = { id: D.id, s: doc.s }; doc.s = []; putV2(); render(); }
+      } else if (doc && doc.s.length) { D.hist.push({ k: 'clear', s: doc.s }); doc.s = []; D.dirty = true; later(); render(); }
     }
     else if (a === 'finger') { ui.finger = !ui.finger; saveUI(); paintTool(); }
     else if (a === 'close') close();
   });
   function undo() {
+    if (NI()) { tell({ k: 'undo' }); return; }
     const h = D.hist; if (!h.length || !D.doc) return;
     const x = h.pop(), doc = D.doc;
     if (x.k === 'add') doc.s.pop(); else if (x.k === 'clear') doc.s = x.s.concat(doc.s);
@@ -629,6 +650,11 @@
   Kit.draft = { D, ui, V, open, close, flush, render, fix, homeView, setView, get doc() { return D.doc; }, get gesture() { return G; },
     /* App 调：at 是 App 画布现在的取景窗 {x, y, z}（屏幕 = 纸面 × z + (x, y)），旧 v2 笔迹跟着它画 */
     native: NI() ? {
+      update(o) { NV.undo = !!(o && o.undo); paintUndo(); },
+      unclear() {
+        const c = D.cleared; if (!c || c.id !== D.id || !D.doc) return;
+        D.doc.s = c.s.concat(D.doc.s); D.cleared = null; putV2(); render();
+      },
       at(v) {
         if (!v || !isFinite(+v.x) || !isFinite(+v.y) || !(+v.z > 0)) return;
         V.x = +v.x; V.y = +v.y; V.z = +v.z; paintZoom(); if (D.open) want();

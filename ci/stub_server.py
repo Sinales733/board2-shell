@@ -15,7 +15,10 @@ from urllib.parse import parse_qs, urlparse
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8409
 ROOT = os.path.abspath(sys.argv[2] if len(sys.argv) > 2 else os.path.join(os.path.dirname(__file__), "fixture"))
-DRAFTS = {}
+# 2009-01 预先放一份旧格式（v2）草稿：两条横线，测"清空时垫底的旧笔迹一起清、撤销能恢复"
+DRAFTS = {"2009-01": {"v": 2, "t": 1, "view": None, "pages": [], "s": [
+    {"c": "blue", "w": 2.6, "e": 0, "k": 1, "o": [60, 520], "p": [0, 0, 0.5, 120, 4, 0.5, 240, 0, 0.5]},
+    {"c": "blue", "w": 2.6, "e": 0, "k": 1, "o": [60, 560], "p": [0, 0, 0.5, 120, 4, 0.5, 240, 0, 0.5]}]}}
 POSTS = []
 STATE = {"offline": False}   # /_offline 以后：除了 /_ 开头的控制接口，一律不回话直接断开（App 那边当"连不上电脑"）
 

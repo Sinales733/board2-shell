@@ -68,14 +68,15 @@ jobs:
           fi
           rm -rf ipa && mkdir -p ipa/Payload
           cp -R "$APP" ipa/Payload/
-          (cd ipa && zip -qry ../Board2.ipa Payload)
-          ls -la Board2.ipa
-          unzip -l Board2.ipa | head -n 20
+          (cd ipa && zip -qry ../Board2-untested.ipa Payload)
+          ls -la Board2-untested.ipa
+          unzip -l Board2-untested.ipa | head -n 20
 
-      - name: Upload IPA
+      # 名字带 untested：模拟器测试没过之前不算可交付；下面的 release 任务在模拟器测试通过后才发出 Board2.ipa
+      - name: Upload IPA (untested)
         uses: actions/upload-artifact@v7
         with:
-          path: Board2.ipa
+          path: Board2-untested.ipa
           # 不再套一层 zip，下载下来直接就是 Board2.ipa
           archive: false
           if-no-files-found: error
@@ -117,4 +118,37 @@ jobs:
           name: shots
           path: shots
           if-no-files-found: warn
+          retention-days: 30
+
+  release:
+    # 编译和模拟器测试都过了才发可交付的安装包 Board2.ipa
+    needs: [build, simulator]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download untested IPA
+        uses: actions/download-artifact@v7
+        with:
+          name: Board2-untested.ipa
+          path: dl
+
+      - name: Rename
+        run: |
+          set -euo pipefail
+          ls -la dl
+          f=$(find dl -name "*.ipa" | head -n 1)
+          if [ -z "$f" ]; then
+            # 下载下来是解开的目录（Payload/…）：重新打包
+            (cd dl && zip -qry ../Board2.ipa Payload)
+          else
+            cp "$f" Board2.ipa
+          fi
+          ls -la Board2.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v7
+        with:
+          path: Board2.ipa
+          archive: false
+          if-no-files-found: error
           retention-days: 30

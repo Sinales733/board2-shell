@@ -209,10 +209,6 @@ final class ShellViewController: UIViewController {
 
         setUpWebView()
         ink = InkLayer(host: view, webView: webView)
-        // 原生开关按钮：让网页开 / 关草稿纸（网页再把状态发回来，画布跟着显示 / 隐藏）
-        ink?.onToggle = { [weak self] on in
-            self?.webView.evaluateJavaScript(on ? "Kit.draft.open()" : "Kit.draft.close()", completionHandler: nil)
-        }
         setUpOverlay()
         setUpBadges()
         setUpPencil()
@@ -515,7 +511,8 @@ final class ShellViewController: UIViewController {
         lastPencilFire = now
         guard state == .loaded, !overlay.isShown else { return }
         Haptics.select()
-        if ink?.pencilDoubleTap() == true { return }   // 草稿纸开着：App 的画布自己切笔 / 橡皮
+        // 草稿纸开着：网页切笔 / 橡皮并把新工具发给画布（工具条高亮跟着变）；收着：网页打开草稿纸。画布自己不处理双击。
+        InkDiag.shared.log("pencil double tap -> web")
         webView.evaluateJavaScript(ShellViewController.pencilJS) { _, error in
             if let error = error {
                 NSLog("Board2Shell: pencil JS failed: \(error)")
@@ -537,6 +534,11 @@ extension ShellViewController: WKNavigationDelegate {
         }
         decisionHandler(.cancel)
         if navigationAction.targetFrame?.isMainFrame != false { openExternal(url) }
+    }
+
+    /// 网页换页了：草稿纸的画布先存盘收起（不等网页说，网页那头已经没了）。
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        ink?.forceClose("navigation committed")
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -569,6 +571,7 @@ extension ShellViewController: WKNavigationDelegate {
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         NSLog("Board2Shell: web content process terminated, reloading")
+        ink?.forceClose("web content process terminated")
         loadServer()
     }
 }
@@ -832,7 +835,9 @@ extension ShellViewController {
             case "draft":
                 // 透明度：-b2alpha 0.5（网页草稿纸的 ui.alpha；改了以后让它按昼夜变化那条路重画一次工具条）
                 let a = UserDefaults.standard.double(forKey: "b2alpha")
-                let js = "Kit.draft && Kit.draft.open().then(function(){" + (a > 0 ? "Kit.draft.ui.alpha=\(a);var h=document.documentElement;h.setAttribute('data-theme',h.dataset.theme);" : "") + "})"
+                // -b2sure YES：再点一下工具条上的清空，拍清空的确认态
+                let sure = UserDefaults.standard.bool(forKey: "b2sure") ? "var c=document.querySelector('#dtool [data-a=\"clear\"]');c&&c.click();" : ""
+                let js = "Kit.draft && Kit.draft.open().then(function(){" + (a > 0 ? "Kit.draft.ui.alpha=\(a);var h=document.documentElement;h.setAttribute('data-theme',h.dataset.theme);" : "") + "setTimeout(function(){" + sure + "},700);})"
                 self.webView.evaluateJavaScript(js, completionHandler: nil)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { self.ink?.drawSample() }
                 delay = 2.2
@@ -858,11 +863,9 @@ extension ShellViewController {
                 self.runSelfTest(ready: ready)
                 return
             case "inktest":
-                // 真实触摸测试（UITests 的 testInk）：草稿纸打开、"允许手指书写"打开；之后每 0.25 秒把状态写到 Mac 上，
-                // 测试按状态里的按钮位置去点、按命令文件让 App 换题 / 开关手指书写。
-                self.ink?.testFinger(true)
-                self.webView.evaluateJavaScript("Kit.draft.open()", completionHandler: nil)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { self.inkProbe() }
+                // 真实触摸测试（UITests 的 testInk）：草稿纸收着开始（测试自己点按钮打开）；之后每 0.25 秒把状态写到 Mac 上，
+                // 测试按状态里的位置去点、按命令文件让 App 换题 / 强制手指也写（模拟器没有笔）。
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.inkProbe() }
                 delay = 2.0
             default:
                 break
@@ -878,9 +881,15 @@ extension ShellViewController {
         let js = """
         (function(){var r=function(el){if(!el)return null;var b=el.getBoundingClientRect();return [b.left,b.top,b.width,b.height];};
         if(window.__b2clicks===undefined){window.__b2clicks=0;document.addEventListener('pointerdown',function(){window.__b2clicks++;},true);}
-        var d=window.Kit&&Kit.draft,o=document.querySelector('.opt');return JSON.stringify({id:d&&d.D.id,open:d&&d.D.open,
+        var d=window.Kit&&Kit.draft,o=document.querySelector('.opt'),t=document.getElementById('dtool'),q=function(a){return t&&t.querySelector(a);};
+        var cl=q('[data-a="clear"]'),su=q('.dsure');
+        return JSON.stringify({id:d&&d.D.id,open:d&&d.D.open,tool:d&&d.ui.tool,color:d&&d.ui.color,finger:d&&!!d.ui.finger,side:d&&d.ui.side,
         V:d&&[d.V.x,d.V.y,d.V.z],W:innerWidth,H:innerHeight,q:window.Board2&&Board2.id,opt:r(o),clicks:window.__b2clicks,
-        dtoolShown:!!(document.getElementById('dtool')&&document.getElementById('dtool').offsetWidth)});})()
+        v2:d&&d.doc?d.doc.s.length:-1,dtoolShown:!!(t&&t.offsetWidth),dtool:r(t),draftBtn:r(document.getElementById('draftBtn')),
+        clearSure:!!(cl&&cl.classList.contains('sure')),sureShown:!!(su&&su.classList.contains('on')),undoDisabled:!!(q('[data-a="undo"]')||{}).disabled,
+        btn:{grip:r(q('[data-a="grip"]')),pen:r(q('[data-a="pen"]')),eraser:r(q('[data-a="eraser"]')),color:r(q('[data-a="color"]')),undo:r(q('[data-a="undo"]')),
+        clear:r(cl),more:r(q('[data-a="more"]')),close:r(q('[data-a="close"]')),red:r(q('.dpal [data-c="red"]')),finger:r(q('[data-a="finger"]'))},
+        pal:!!(q('.dpal')&&q('.dpal').classList.contains('on')),moreOpen:!!(q('.dmore')&&q('.dmore').classList.contains('on'))});})()
         """
         webView.evaluateJavaScript(js) { [weak self] res, _ in
             guard let self = self else { return }
@@ -913,8 +922,11 @@ extension ShellViewController {
             webView.evaluateJavaScript("Kit.draft.open()", completionHandler: nil)
         case "close":
             webView.evaluateJavaScript("Kit.draft.close()", completionHandler: nil)
+        case "reset":
+            ink?.testReset()
         case "finger":
-            ink?.testFinger(parts.count > 1 && parts[1] == "on")
+            // on = 强制手指也写（模拟器没有笔）；auto = 跟工具条的手指书写开关走
+            ink?.testFinger(parts.count > 1 && parts[1] == "on" ? true : nil)
         default:
             break
         }
