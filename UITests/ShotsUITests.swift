@@ -426,7 +426,7 @@ final class ShotsUITests: XCTestCase {
         _ = http("_online")
         var out: [String: Any] = [:]
         // 变体:方式。方式 stroke = 写完一笔马上点；idlefirst = 开草稿纸后先不写字点一下，再写字点；late = 开草稿纸后等 15 秒再写字点
-        let runs = (ProcessInfo.processInfo.environment["B2_VARIANTS"] ?? "base:idlefirst,x:idlefirst,y:idlefirst,base:stroke,x:stroke,y:stroke").split(separator: ",").map(String.init)
+        let runs = (ProcessInfo.processInfo.environment["B2_VARIANTS"] ?? "base:idlefirst,y:idlefirst,base:stroke,y:stroke,base:late,y:late").split(separator: ",").map(String.init)
         for r in runs {
             let p = r.split(separator: ":").map(String.init)
             out[r] = latencyRun(p[0], mode: p.count > 1 ? p[1] : "stroke")
@@ -488,7 +488,7 @@ final class ShotsUITests: XCTestCase {
             Thread.sleep(forTimeInterval: 3.0)
             let t2 = lastTap(); idle.append(t2["liftToAct"] as? Int ?? -1); detail.append(["kind": "idle", "tap": t2])
         }
-        let perf = web()["perf"] ?? NSNull()
+        let perf: [String: Any] = ["web": web()["perf"] ?? NSNull(), "mainGaps": native()["mainGaps"] ?? NSNull(), "mainSlow": native()["mainSlow"] ?? NSNull()]
         print("LATENCY \(variant):\(mode) first=\(first["liftToAct"] ?? "-") after-stroke=\(after) idle=\(idle) perf=\(perf)")
         app.terminate()
         return ["first": first, "afterStroke": after, "idle": idle, "detail": detail, "perf": perf]

@@ -54,3 +54,45 @@ enum ShotVariant {
     static let set: Set<String> = Set((UserDefaults.standard.string(forKey: "b2var") ?? "").split(separator: ",").map(String.init))
     static func on(_ k: String) -> Bool { set.contains(k) }
 }
+
+/// 诊断：App 主线程有没有被卡住——每 50 毫秒打一次拍，两拍之间超过 250 毫秒就记"从几点起卡了多久、卡之前最后在做什么"。
+/// 另外几处可能慢的活（整张换画布、遮罩、状态消息、状态探针写文件）超过 30 毫秒记一笔。草稿纸开着或截图模式下才记。
+enum MainBeat {
+    private static var last = ProcessInfo.processInfo.systemUptime
+    private static var timer: Timer?
+    static var doing = "-"
+    private(set) static var gaps: [String] = []
+    private(set) static var slow: [String] = []
+
+    static func start() {
+        guard timer == nil else { return }
+        let t = Timer(timeInterval: 0.05, repeats: true) { _ in
+            let now = ProcessInfo.processInfo.systemUptime
+            let gap = now - last
+            if gap > 0.25, InkDiag.shared.touchLogging || ShotMode.isOn {
+                let rec = "\(TouchClock.wall(last))+\(Int(gap * 1000))(after \(doing))"
+                gaps.append(rec); if gaps.count > 12 { gaps.removeFirst() }
+                InkDiag.shared.log("main thread blocked \(rec)")
+            }
+            last = now
+        }
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
+    }
+
+    /// 量一段活用了多久（超过 30 毫秒记下来）
+    @discardableResult
+    static func time<T>(_ name: String, _ f: () -> T) -> T {
+        let prev = doing; doing = name
+        let t0 = ProcessInfo.processInfo.systemUptime
+        let r = f()
+        let d = ProcessInfo.processInfo.systemUptime - t0
+        doing = prev
+        if d > 0.03 {
+            let rec = "\(name)@\(TouchClock.wall(t0))+\(Int(d * 1000))"
+            slow.append(rec); if slow.count > 12 { slow.removeFirst() }
+            InkDiag.shared.log("slow \(rec)")
+        }
+        return r
+    }
+}

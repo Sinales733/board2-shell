@@ -27,7 +27,8 @@ STUB=$!
 for i in $(seq 1 40); do curl -sf http://127.0.0.1:8409/data/index.json > /dev/null && break; sleep 0.25; done
 
 set +e
-COMMON=(-project Board2Shell.xcodeproj -scheme Board2Shell -destination "platform=iOS Simulator,id=$UDID" -derivedDataPath build CODE_SIGNING_ALLOWED=NO)
+# Release 配置：测的就是要装到 iPad 上的那种编法
+COMMON=(-project Board2Shell.xcodeproj -scheme Board2Shell -configuration Release -destination "platform=iOS Simulator,id=$UDID" -derivedDataPath build CODE_SIGNING_ALLOWED=NO B2_COMMIT="${GITHUB_SHA:-local}")
 xcodebuild build-for-testing "${COMMON[@]}" > "$OUT/xcbuild.log" 2>&1
 echo "build-for-testing exit: $?"
 

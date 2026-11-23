@@ -926,8 +926,10 @@ extension ShellViewController {
             guard let self = self else { return }
             var o: [String: Any] = ["native": self.ink?.debugInfo() ?? [:], "seq": self.inkCmdSeq]
             if let s = res as? String, let d = s.data(using: .utf8), let w = try? JSONSerialization.jsonObject(with: d) { o["web"] = w }
-            if let d = try? JSONSerialization.data(withJSONObject: o, options: [.sortedKeys]), let s = String(data: d, encoding: .utf8) {
-                ShotMode.hostWrite(".state.json", s)
+            MainBeat.time("probe-write") {
+                if let d = try? JSONSerialization.data(withJSONObject: o, options: [.sortedKeys]), let s = String(data: d, encoding: .utf8) {
+                    ShotMode.hostWrite(".state.json", s)
+                }
             }
             if let dir = ShotMode.hostOut {
                 let url = dir.appendingPathComponent(ShotMode.shotName + ".cmd")

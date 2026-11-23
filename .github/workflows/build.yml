@@ -43,6 +43,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
+            B2_COMMIT="${GITHUB_SHA}" \
             build 2>&1 | tee xcodebuild.log
 
       - name: Show build log tail on failure
@@ -71,6 +72,7 @@ jobs:
           (cd ipa && zip -qry ../Board2-untested.ipa Payload)
           ls -la Board2-untested.ipa
           unzip -l Board2-untested.ipa | head -n 20
+          echo "sha256 (build): $(shasum -a 256 Board2-untested.ipa | cut -d' ' -f1)"
 
       # 名字带 untested：模拟器测试没过之前不算可交付；下面的 release 任务在模拟器测试通过后才发出 Board2.ipa
       - name: Upload IPA (untested)
@@ -121,29 +123,28 @@ jobs:
           retention-days: 30
 
   release:
-    # 编译和模拟器测试都过了才发可交付的安装包 Board2.ipa
+    # 编译和模拟器测试都过了才发可交付的安装包 Board2.ipa：把 build 任务那个文件原样取下来（不解压、不重新打包），改个名再发
     needs: [build, simulator]
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
     steps:
-      - name: Download untested IPA
-        uses: actions/download-artifact@v7
-        with:
-          name: Board2-untested.ipa
-          path: dl
-
-      - name: Rename
+      - name: Fetch untested IPA as-is
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          ls -la dl
-          f=$(find dl -name "*.ipa" | head -n 1)
-          if [ -z "$f" ]; then
-            # 下载下来是解开的目录（Payload/…）：重新打包
-            (cd dl && zip -qry ../Board2.ipa Payload)
-          else
-            cp "$f" Board2.ipa
-          fi
+          q='.artifacts[] | select(.name=="Board2-untested.ipa")'
+          id=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" --jq "${q} | .id")
+          digest=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" --jq "${q} | .digest")
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}/zip" > Board2.ipa
           ls -la Board2.ipa
+          got="sha256:$(sha256sum Board2.ipa | cut -d' ' -f1)"
+          echo "artifact digest: ${digest}"
+          echo "downloaded:      ${got}"
+          [ "${got}" = "${digest}" ] || { echo "downloaded file differs from the build artifact"; exit 1; }
 
       - name: Upload IPA
         uses: actions/upload-artifact@v7

@@ -186,6 +186,10 @@ final class InkLayer: NSObject {
     // MARK: - 网页发来的消息
 
     func handle(_ body: [String: Any]) {
+        MainBeat.time("msg-\(body["k"] as? String ?? "?")") { handleInner(body) }
+    }
+
+    private func handleInner(_ body: [String: Any]) {
         guard let k = body["k"] as? String else { return }
         // 最后一笔还没交到画布上，又要收起或换题：等它（最多 300 毫秒）再处理这条消息，不然存盘会漏掉这一笔
         if k == "state", pendingStroke, ((body["open"] as? Bool) == false || (body["id"] as? String) != id) {
@@ -437,7 +441,7 @@ final class InkLayer: NSObject {
     private func setDrawing(_ d: PKDrawing, _ why: String) {
         InkDiag.shared.log("setDrawing \(why) \(canvas.drawing.strokes.count)->\(d.strokes.count)")
         settingDrawing = true
-        canvas.drawing = d
+        MainBeat.time("setDrawing-\(why)") { canvas.drawing = d }
         lastCount = d.strokes.count
         settingDrawing = false
     }
@@ -619,7 +623,7 @@ final class InkLayer: NSObject {
         let tf = toggle.frame
         return ["count": canvas.drawing.strokes.count, "strokes": strokes, "prints": prints, "open": isOpen, "id": id ?? NSNull(),
                 "view": [Double(v.x), Double(v.y), Double(v.z)], "tool": InkLayer.toolName(canvas.tool),
-                "color": colorName, "canUndo": canvas.undoManager?.canUndo ?? false, "lastTap": lastTap, "variant": Array(ShotVariant.set), "lastColor": lastStrokeColor(),
+                "color": colorName, "canUndo": canvas.undoManager?.canUndo ?? false, "lastTap": lastTap, "mainGaps": MainBeat.gaps, "mainSlow": MainBeat.slow, "variant": Array(ShotVariant.set), "lastColor": lastStrokeColor(),
                 "webBtn": [Double(webBtn.minX), Double(webBtn.minY), Double(webBtn.width), Double(webBtn.height)], "covered": webBtnCovered,
                 "passRects": canvas.passRects.map { [Double($0.minX), Double($0.minY), Double($0.width), Double($0.height)] },
                 "screen": [Double(host?.bounds.width ?? 0), Double(host?.bounds.height ?? 0)],
