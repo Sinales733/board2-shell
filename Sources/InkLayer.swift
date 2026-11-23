@@ -183,14 +183,17 @@ final class InkLayer: NSObject {
         if open != isOpen {
             isOpen = open
             InkDiag.shared.touchLogging = open
-            canvas.isHidden = !open
             if open {
-                canvas.becomeFirstResponder()
+                canvas.isHidden = false
                 toolPicker.setVisible(true, forFirstResponder: canvas)
+                canvas.becomeFirstResponder()
                 tellWebView()
             } else {
+                // 先让工具盘收起、画布交出第一响应者，再藏画布（藏了以后它交不出去，工具盘会一直挂着、挡住下面的点按）
                 toolPicker.setVisible(false, forFirstResponder: canvas)
-                canvas.resignFirstResponder()
+                let r = canvas.resignFirstResponder()
+                canvas.isHidden = true
+                if !r || toolPicker.isVisible { InkDiag.shared.log("picker still visible after close (resign=\(r))") }
                 saveNow()
             }
             InkDiag.shared.log("canvas \(open ? "open" : "closed") strokes=\(canvas.drawing.strokes.count) picker=\(toolPicker.isVisible)")

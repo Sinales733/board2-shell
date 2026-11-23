@@ -877,7 +877,7 @@ extension ShellViewController {
     fileprivate func inkProbe() {
         let js = """
         (function(){var r=function(el){if(!el)return null;var b=el.getBoundingClientRect();return [b.left,b.top,b.width,b.height];};
-        if(window.__b2clicks===undefined){window.__b2clicks=0;document.addEventListener('click',function(){window.__b2clicks++;},true);}
+        if(window.__b2clicks===undefined){window.__b2clicks=0;document.addEventListener('pointerdown',function(){window.__b2clicks++;},true);}
         var d=window.Kit&&Kit.draft,o=document.querySelector('.opt');return JSON.stringify({id:d&&d.D.id,open:d&&d.D.open,
         V:d&&[d.V.x,d.V.y,d.V.z],W:innerWidth,H:innerHeight,q:window.Board2&&Board2.id,opt:r(o),clicks:window.__b2clicks,
         dtoolShown:!!(document.getElementById('dtool')&&document.getElementById('dtool').offsetWidth)});})()

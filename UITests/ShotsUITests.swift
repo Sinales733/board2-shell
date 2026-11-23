@@ -242,7 +242,7 @@ final class ShotsUITests: XCTestCase {
         let clicks0 = web()["clicks"] as? Int ?? -1
         _ = tapRect(pageR)
         let clicks1 = web()["clicks"] as? Int ?? -1
-        step("open: tap on page is blocked", clicks1 == clicks0 && count() == kept, "page clicks \(clicks0)->\(clicks1)")
+        step("open: tap on page is blocked", clicks1 == clicks0 && count() == kept, "page pointerdowns \(clicks0)->\(clicks1)")
         // 开关：按读屏标识找到 App 的按钮点一次（点不到会记下为什么）
         let tgEl = app.buttons.matching(identifier: "b2draftToggle").firstMatch
         let tgFound = tgEl.waitForExistence(timeout: 3), tgHit = tgFound && tgEl.isHittable
@@ -255,7 +255,7 @@ final class ShotsUITests: XCTestCase {
              "web=\(web()["open"] ?? "nil") canvas=\(native()["open"] ?? "nil") toggle=\(tg ?? []) found=\(tgFound) hittable=\(tgHit)")
         _ = tapRect(pageR)
         let clicks2 = web()["clicks"] as? Int ?? -1
-        step("closed: tap on page works", clicks2 > clicks1, "page clicks \(clicks1)->\(clicks2)")
+        step("closed: tap on page works", clicks2 > clicks1, "page pointerdowns \(clicks1)->\(clicks2)")
         // 这个示例页里网页本来没有草稿纸按钮（量不到），收着时 App 的按钮也不出来：那就用命令打开
         let hiddenWhenClosed = (native()["toggleHidden"] as? Bool) == true
         if hiddenWhenClosed { cmd("open") } else { _ = tapRect(native()["toggle"] as? [Double]) }
