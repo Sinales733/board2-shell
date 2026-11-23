@@ -356,7 +356,7 @@ final class ShotsUITests: XCTestCase {
             cmd("closeall"); Thread.sleep(forTimeInterval: 1.5)
         }
         let t3 = tapToggle()
-        let diag = " toggleHidden=\(native()["toggleHidden"] ?? "nil") webBtn=\(native()["webBtn"] ?? "nil") covered=\(native()["covered"] ?? "nil")"
+        let diag = " open=\(web()["open"] ?? "nil") prints equal=\(prints() == keptPrints) toolbar=\(toolbarOK()) toggleHidden=\(native()["toggleHidden"] ?? "nil") webBtn=\(native()["webBtn"] ?? "nil") covered=\(native()["covered"] ?? "nil")"
         step("reopen by button (one tap), strokes kept", t3 && (web()["open"] as? Bool) == true && waitCount(n0) == n0 && prints() == keptPrints && toolbarOK(), "count ->\(count())" + covered + diag)
 
         // ---- 换题再换回来：比指纹 ----

@@ -591,7 +591,7 @@
     const r = p.getBoundingClientRect(); if (r.bottom > innerHeight - 8) p.style.top = (parseFloat(p.style.top) - (r.bottom - innerHeight + 8)) + 'px';
   }
   /* 按下和抬起在同一个按钮上就算点了一下，抬起时立刻生效。手指 / 笔点的：touchend 上 preventDefault，浏览器就不再补一个 click
-     （补来的 click 会晚一两秒，那时小弹层可能已经收了，click 会落到下面的页面上，比如打开原卷浮层；也会把开关再拨回去）。
+     （补来的 click 会晚一两秒，那时小弹层可能已经收了，click 会落到下面的页面上；也会把开关再拨回去）。
      鼠标、键盘这种没有触摸的点击照旧走 click（pointerup 生效过的那一下不再算）。 */
   let downEl = null, downAt = 0, upDone = false;
   const btnOf = (t) => (t && t.closest ? t.closest('[data-c], [data-a]') : null);
@@ -601,7 +601,9 @@
     if (!el || el !== downEl || el.dataset.a === 'grip' || el.dataset.a === 'alpha') { downEl = null; return; }
     downEl = null; upDone = true; act(e);
   });
-  tool.addEventListener('touchend', (e) => { const el = btnOf(e.target); if (el && el.dataset.a !== 'grip' && el.dataset.a !== 'alpha') e.preventDefault(); }, { passive: false });
+  /* 在工具条上按下的手指 / 笔（包括拖手柄、拖透明度）抬起时都不要浏览器补 click：拖手柄松手时手指往往已经在工具条外面，
+     补来的 click 会落到下面的页面上（模拟器里实测打开了原卷浮层） */
+  tool.addEventListener('touchend', (e) => { e.preventDefault(); }, { passive: false });
   tool.addEventListener('click', (e) => { if (upDone) { upDone = false; return; } act(e); });
   function act(e) {
     const c = e.target.closest('[data-c]'); if (c) { ui.color = c.dataset.c; ui.tool = 'pen'; saveUI(); paintTool(); closePops(); return; }
