@@ -21,6 +21,8 @@ final class InkLayer: NSObject {
 
     let canvas = InkCanvas()
     let toggle = DraftToggle()
+    /// 工具盘跟着它显示 / 隐藏（看不见的 1×1 视图，能当第一响应者）
+    private let anchor = PickerAnchor(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
     private let toolPicker = PKToolPicker()
     private weak var host: UIView?
     private weak var webView: WKWebView?
@@ -94,6 +96,8 @@ final class InkLayer: NSObject {
         toolPicker.selectedTool = canvas.tool
         toolPicker.colorUserInterfaceStyle = .dark
 
+        anchor.isUserInteractionEnabled = false
+        host.addSubview(anchor)
         toggle.isHidden = true
         toggle.addTarget(self, action: #selector(togglePressed), for: .touchUpInside)
         host.insertSubview(toggle, aboveSubview: canvas)
@@ -185,15 +189,16 @@ final class InkLayer: NSObject {
             InkDiag.shared.touchLogging = open
             if open {
                 canvas.isHidden = false
-                toolPicker.setVisible(true, forFirstResponder: canvas)
-                canvas.becomeFirstResponder()
+                toolPicker.setVisible(true, forFirstResponder: anchor)
+                anchor.becomeFirstResponder()
                 tellWebView()
             } else {
-                // 先让工具盘收起、画布交出第一响应者，再藏画布（藏了以后它交不出去，工具盘会一直挂着、挡住下面的点按）
-                toolPicker.setVisible(false, forFirstResponder: canvas)
-                let r = canvas.resignFirstResponder()
+                // 工具盘挂在一个不显示的小"锚点"上，而不是画布上：画布不肯交出第一响应者（1.8 第一版里收起后工具盘一直挂着、
+                // 挡住下面的第一下点按），锚点是普通视图，说交就交。
+                toolPicker.setVisible(false, forFirstResponder: anchor)
+                let r = anchor.resignFirstResponder()
                 canvas.isHidden = true
-                if !r || toolPicker.isVisible { InkDiag.shared.log("picker still visible after close (resign=\(r))") }
+                if !r { InkDiag.shared.log("picker anchor did not resign") }
                 saveNow()
             }
             InkDiag.shared.log("canvas \(open ? "open" : "closed") strokes=\(canvas.drawing.strokes.count) picker=\(toolPicker.isVisible)")
@@ -436,7 +441,7 @@ final class InkLayer: NSObject {
         let tf = toggle.frame
         return ["count": canvas.drawing.strokes.count, "strokes": strokes, "prints": prints, "open": isOpen, "id": id ?? NSNull(),
                 "view": [Double(v.x), Double(v.y), Double(v.z)], "tool": InkLayer.toolName(canvas.tool),
-                "picker": toolPicker.isVisible, "firstResponder": canvas.isFirstResponder,
+                "picker": toolPicker.isVisible, "firstResponder": anchor.isFirstResponder,
                 "toggle": [Double(tf.minX), Double(tf.minY), Double(tf.width), Double(tf.height)], "toggleHidden": toggle.isHidden,
                 "policy": canvas.drawingPolicy.rawValue, "lastTouchEnd": [Double(lastTouchEnd.x), Double(lastTouchEnd.y)], "log": InkDiag.shared.tail(30)]
     }
@@ -563,6 +568,11 @@ extension InkLayer: PKCanvasViewDelegate, PKToolPickerObserver {
         dirtyView = true
         saveSoon()
     }
+}
+
+/// 工具盘的锚点：看不见、不接触摸，只用来当第一响应者，让工具盘显示 / 隐藏。
+final class PickerAnchor: UIView {
+    override var canBecomeFirstResponder: Bool { true }
 }
 
 /// 画布：网页"纸上面的那几层"（问答面板、抽屉、提示条……）那几块不接触摸，让给下面的网页。
