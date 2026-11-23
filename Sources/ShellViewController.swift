@@ -912,7 +912,7 @@ extension ShellViewController {
         v2:d&&d.doc?d.doc.s.length:-1,clk:window.__b2clk,tag:r(document.getElementById('tag')),cells:{a:r(document.querySelector('#nv .pane:not(.out) .cell[data-id="2009-01"]')),b:r(document.querySelector('#nv .pane:not(.out) .cell[data-id="2009-02"]'))},drawer:!!(document.getElementById('drawer')&&document.getElementById('drawer').classList.contains('on')),lastClicks:window.__b2lc,perf:window.__b2perf?{gaps:__b2perf.gaps,slow:__b2perf.slow}:null,aboveOn:['#fbp','#drawer','#sheet','#weak','#akPg','#akHere','.toast'].filter(function(k){var e=document.querySelector(k);return e&&e.classList.contains('on');}),stem:r(document.getElementById('stem')),dtoolShown:!!(t&&t.offsetWidth),dtool:r(t),draftBtn:r(document.getElementById('draftBtn')),
         clearSure:!!(cl&&cl.classList.contains('sure')),sureShown:!!(su&&su.classList.contains('on')),undoDisabled:!!(q('[data-a="undo"]')||{}).disabled,
         btn:{grip:r(q('[data-a="grip"]')),pen:r(q('[data-a="pen"]')),eraser:r(q('[data-a="eraser"]')),color:r(q('[data-a="color"]')),undo:r(q('[data-a="undo"]')),
-        clear:r(cl),sure:r(su),zoom:r(q('[data-a="zoom"]')),more:r(q('[data-a="more"]')),close:r(q('[data-a="close"]')),red:r(q('.dpal [data-c="red"]')),finger:r(q('[data-a="finger"]'))},
+        clear:r(cl),sure:r(su),zoom:r(q('[data-a="zoom"]')),more:r(q('[data-a="more"]')),close:r(q('[data-a="close"]')),red:r(q('.dpal [data-c="red"]')),blue:r(q('.dpal [data-c="blue"]')),finger:r(q('[data-a="finger"]'))},
         pal:!!(q('.dpal')&&q('.dpal').classList.contains('on')),moreOpen:!!(q('.dmore')&&q('.dmore').classList.contains('on'))});})()
         """
         webView.evaluateJavaScript(js) { [weak self] res, _ in
