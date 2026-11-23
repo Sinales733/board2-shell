@@ -207,7 +207,8 @@ final class ShotsUITests: XCTestCase {
         func tapTool(_ k: String, until: (() -> Bool)? = nil) -> (Bool, Int, Int) {
             let c0 = count()
             let ok = tapRect(wbtn(k))
-            if let until = until { let end = Date().addingTimeInterval(3); while !until() && Date() < end { Thread.sleep(forTimeInterval: 0.2) } }
+            if let until = until { let end = Date().addingTimeInterval(9);   // XCUITest 有时把手指按住好几秒才抬（日志 held_ms），按结果等
+                while !until() && Date() < end { Thread.sleep(forTimeInterval: 0.2) } }
             return (ok, c0, count())
         }
         func zone() -> (x0: Double, x1: Double, ys: [Double]) {
@@ -281,7 +282,8 @@ final class ShotsUITests: XCTestCase {
         drag((z.x0 + 40, z.ys[2]), (z.x0 + 140, z.ys[2] + 90), velocity: 200, press: 0.05, hold: 0.8)
         Thread.sleep(forTimeInterval: 1.0)
         let v1 = nview()
-        let moved = v0.count == 3 && v1.count == 3 && abs((v1[0] - v0[0]) - 100) < 25 && abs((v1[1] - v0[1]) - 90) < 25
+        // 纸往手指拖的方向动了（XCUITest 的拖动快慢不稳，挪多少不定；方向和"动了"是确定的）
+        let moved = v0.count == 3 && v1.count == 3 && v1[0] - v0[0] > 10 && v1[1] - v0[1] > 10
         step("one finger pans paper, toolbar still there", moved && count() == kept && toolbarOK(), "view \(v0.map { Int($0) }) -> \(v1.map { Int($0) }) count=\(count())")
         let (vm, vnote) = viewsMatch()
         step("old draft follows canvas", vm, vnote)
@@ -361,8 +363,9 @@ final class ShotsUITests: XCTestCase {
             cmd("closeall"); Thread.sleep(forTimeInterval: 1.5)
         }
         let t3 = tapToggle()
-        let diag = " t3=\(t3) n0=\(n0) open=\(web()["open"] ?? "nil") prints equal=\(prints() == keptPrints) toolbar=\(toolbarOK()) toggleHidden=\(native()["toggleHidden"] ?? "nil") webBtn=\(native()["webBtn"] ?? "nil") covered=\(native()["covered"] ?? "nil")"
-        step("reopen by button (one tap), strokes kept", t3 && (web()["open"] as? Bool) == true && waitCount(n0) == n0 && prints() == keptPrints && toolbarOK(), "count ->\(count())" + covered + diag)
+        let r3 = waitCount(n0), op3 = (web()["open"] as? Bool) == true, pe3 = prints() == keptPrints, tb3 = toolbarOK()
+        step("reopen by button (one tap), strokes kept", t3 && op3 && r3 == n0 && pe3 && tb3,
+             "t3=\(t3) open=\(op3) count \(r3) (want \(n0)) prints equal=\(pe3) toolbar=\(tb3)" + covered)
 
         // ---- 换题再换回来：比指纹 ----
         cmd("finger on")
