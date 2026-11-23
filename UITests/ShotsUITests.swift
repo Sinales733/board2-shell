@@ -186,7 +186,8 @@ final class ShotsUITests: XCTestCase {
             let after = waitCount(before + 1)
             let (es, ee) = strokeErr(a, b)
             step(label, after == before + 1 && es < 6 && ee < 6 && toolbarOK(),
-                 "count \(before)->\(after) start err \(String(format: "%.1f", es)) end err \(String(format: "%.1f", ee)) toolbar=\(toolbarOK())")
+                 "count \(before)->\(after) start err \(String(format: "%.1f", es)) end err \(String(format: "%.1f", ee)) toolbar=\(toolbarOK())"
+                 + (after == before + 1 ? "" : " passRects=\(native()["passRects"] ?? "nil") policy=\(native()["policy"] ?? "nil")"))
         }
         func viewsMatch() -> (Bool, String) {
             let n = nview(), w = web()["V"] as? [Double] ?? []
@@ -343,7 +344,8 @@ final class ShotsUITests: XCTestCase {
         var covered = ""
         if (native()["toggleHidden"] as? Bool) == true { covered = " (page tap covered the button; reset by goto)"; cmd("goto 2009-01"); Thread.sleep(forTimeInterval: 1.5) }
         let t3 = tapToggle()
-        step("reopen by button (one tap), strokes kept", t3 && (web()["open"] as? Bool) == true && waitCount(n0) == n0 && prints() == keptPrints && toolbarOK(), "count ->\(count())" + covered)
+        let diag = " toggleHidden=\(native()["toggleHidden"] ?? "nil") webBtn=\(native()["webBtn"] ?? "nil") covered=\(native()["covered"] ?? "nil")"
+        step("reopen by button (one tap), strokes kept", t3 && (web()["open"] as? Bool) == true && waitCount(n0) == n0 && prints() == keptPrints && toolbarOK(), "count ->\(count())" + covered + diag)
 
         // ---- 换题再换回来：比指纹 ----
         cmd("finger on")

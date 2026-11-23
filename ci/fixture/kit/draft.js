@@ -47,7 +47,9 @@
      撤销、清空、缩放比例发给 App 做；App 回报能不能撤销（native.update）。工具条和展开的小弹层所在的地方 App 的画布让出来给这里。
      清空从“更多”挪到工具条第一层（Safari 里也一样），两次确认照旧：第一次点变成确认态（红框 + 旁边一句 ui.draft.clearSure），4 秒内再点才清。
      App 里清空 = App 的新笔迹 + 这里垫底的旧 v2 笔迹一起清（旧的写回电脑），App 的撤销能把两样都恢复（本次打开期间）。
-     每点一下工具条告诉 App 一声（tap，带这边的时间），App 记诊断日志。 */
+     每点一下工具条告诉 App 一声（tap，带这边的时间），App 记诊断日志。
+     工具条按钮在手指 / 笔抬起（pointerup）时就生效，不等浏览器合成的 click：模拟器里实测，刚在 App 的画布上写完字，
+     第一下点工具条的 click 要晚将近 2 秒才到（App 1.8 测试日志），1.7 真机上工具条“点了好久才动”也是这个样子。 */
 (function () {
   'use strict';
   const $ = (s) => document.querySelector(s);
@@ -585,7 +587,16 @@
     p.style.top = Math.max(0, anchorEl.offsetTop + anchorEl.offsetHeight / 2 - 26) + 'px'; p.classList.add('on');
     const r = p.getBoundingClientRect(); if (r.bottom > innerHeight - 8) p.style.top = (parseFloat(p.style.top) - (r.bottom - innerHeight + 8)) + 'px';
   }
-  tool.addEventListener('click', (e) => {
+  /* 按下和抬起在同一个按钮上就算点了一下，抬起时立刻生效；随后浏览器补来的 click 不再算第二次 */
+  let downEl = null, upAt = 0;
+  tool.addEventListener('pointerdown', (e) => { downEl = e.target.closest && e.target.closest('[data-c], [data-a]'); }, true);
+  tool.addEventListener('pointerup', (e) => {
+    const el = e.target.closest && e.target.closest('[data-c], [data-a]');
+    if (!el || el !== downEl || el.dataset.a === 'grip' || el.dataset.a === 'alpha') { downEl = null; return; }
+    downEl = null; upAt = performance.now(); act(e);
+  });
+  tool.addEventListener('click', (e) => { if (performance.now() - upAt < 800) return; act(e); });
+  function act(e) {
     const c = e.target.closest('[data-c]'); if (c) { ui.color = c.dataset.c; ui.tool = 'pen'; saveUI(); paintTool(); closePops(); return; }
     const b = e.target.closest('[data-a]'); if (!b || b.disabled) return;
     const a = b.dataset.a, doc = D.doc;
@@ -607,7 +618,7 @@
     }
     else if (a === 'finger') { ui.finger = !ui.finger; saveUI(); paintTool(); }
     else if (a === 'close') close();
-  });
+  }
   function undo() {
     if (NI()) { tell({ k: 'undo' }); return; }
     const h = D.hist; if (!h.length || !D.doc) return;

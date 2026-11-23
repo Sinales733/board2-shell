@@ -377,6 +377,11 @@ final class InkLayer: NSObject {
         if gr.state == .changed { return }
         let p = gr.location(in: canvas.superview)
         if gr.state == .ended { lastTouchEnd = p }
+        // 写完一笔：画布要是拿了第一响应者，交回网页（不然下一下点工具条，网页要先抢回第一响应者，点击会晚到）
+        if gr.state == .ended || gr.state == .cancelled, canvas.isFirstResponder {
+            let w = webView?.becomeFirstResponder() ?? false
+            InkDiag.shared.log("first responder back to web=\(w)")
+        }
         InkDiag.shared.log("draw \(names[gr.state.rawValue] ?? "?") at \(InkDiag.pt(p)) tool=\(InkLayer.toolName(canvas.tool)) strokes=\(canvas.drawing.strokes.count)")
     }
 
@@ -554,6 +559,8 @@ final class InkLayer: NSObject {
         return ["count": canvas.drawing.strokes.count, "strokes": strokes, "prints": prints, "open": isOpen, "id": id ?? NSNull(),
                 "view": [Double(v.x), Double(v.y), Double(v.z)], "tool": InkLayer.toolName(canvas.tool),
                 "color": colorName, "canUndo": canvas.undoManager?.canUndo ?? false, "lastColor": lastStrokeColor(),
+                "webBtn": [Double(webBtn.minX), Double(webBtn.minY), Double(webBtn.width), Double(webBtn.height)], "covered": webBtnCovered,
+                "passRects": canvas.passRects.map { [Double($0.minX), Double($0.minY), Double($0.width), Double($0.height)] },
                 "screen": [Double(host?.bounds.width ?? 0), Double(host?.bounds.height ?? 0)],
                 "toggle": [Double(tf.minX), Double(tf.minY), Double(tf.width), Double(tf.height)], "toggleHidden": toggle.isHidden,
                 "policy": canvas.drawingPolicy == .anyInput ? "anyInput" : (canvas.drawingPolicy == .pencilOnly ? "pencilOnly" : "default"), "lastTouchEnd": [Double(lastTouchEnd.x), Double(lastTouchEnd.y)], "log": InkDiag.shared.tail(30)]
@@ -694,11 +701,17 @@ extension InkLayer: PKCanvasViewDelegate {
 /// 画布：网页"纸上面的那几层"（工具条和它的小弹层、问答面板、抽屉、提示条……）那几块不接触摸，让给下面的网页。
 final class InkCanvas: PKCanvasView {
     var passRects: [CGRect] = []
+    private var lastLogged: TimeInterval = -1
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         guard super.point(inside: point, with: event) else { return false }
         // point 是画布（滚动视图）自己的坐标：减掉内容偏移才是屏幕上的位置
         let p = CGPoint(x: point.x - contentOffset.x, y: point.y - contentOffset.y)
-        return !passRects.contains { $0.contains(p) }
+        guard let r = passRects.first(where: { $0.contains(p) }) else { return true }
+        if let e = event, e.timestamp != lastLogged {   // 同一下触摸只记一次
+            lastLogged = e.timestamp
+            InkDiag.shared.log("pass to web at \(InkDiag.pt(p)) rect=\(Int(r.minX)),\(Int(r.minY)),\(Int(r.width)),\(Int(r.height))")
+        }
+        return false
     }
 }
 
