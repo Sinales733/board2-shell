@@ -197,7 +197,7 @@ final class ShellViewController: UIViewController {
     // MARK: - 生命周期
 
     override func loadView() {
-        let root = UIView()
+        let root = DiagRootView()
         root.backgroundColor = Theme.background
         view = root
     }
@@ -877,9 +877,9 @@ extension ShellViewController {
     fileprivate func inkProbe() {
         let js = """
         (function(){var r=function(el){if(!el)return null;var b=el.getBoundingClientRect();return [b.left,b.top,b.width,b.height];};
-        if(!window.__b2clicks){window.__b2clicks=0;document.addEventListener('click',function(e){if(e.target.closest&&e.target.closest('.opt'))window.__b2clicks++;},true);}
+        if(window.__b2clicks===undefined){window.__b2clicks=0;document.addEventListener('click',function(){window.__b2clicks++;},true);}
         var d=window.Kit&&Kit.draft,o=document.querySelector('.opt');return JSON.stringify({id:d&&d.D.id,open:d&&d.D.open,
-        V:d&&[d.V.x,d.V.y,d.V.z],W:innerWidth,H:innerHeight,q:window.Board2&&Board2.id,opt:r(o),optClicks:window.__b2clicks,
+        V:d&&[d.V.x,d.V.y,d.V.z],W:innerWidth,H:innerHeight,q:window.Board2&&Board2.id,opt:r(o),clicks:window.__b2clicks,
         dtoolShown:!!(document.getElementById('dtool')&&document.getElementById('dtool').offsetWidth)});})()
         """
         webView.evaluateJavaScript(js) { [weak self] res, _ in
@@ -1121,5 +1121,19 @@ final class FetchBridge: NSObject, WKScriptMessageHandlerWithReply {
         proxy.post(pathAndQuery: path, method: method, headers: headers, body: body) { status, text, type in
             replyHandler(["status": status, "b64": Data(text.utf8).base64EncodedString(), "type": type], nil)
         }
+    }
+}
+
+/// 根视图：草稿纸开着（或云端截图模式）时，把每一下触摸落到了哪个视图上记进笔迹诊断日志——真机上"点不动"时能看出触摸被谁收走了。
+/// 系统找"这一下落在谁身上"时会问好几遍，同一个事件只记一次。
+final class DiagRootView: UIView {
+    private var lastStamp: TimeInterval = -1
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let v = super.hitTest(point, with: event)
+        if let e = event, e.type == .touches, e.timestamp != lastStamp, InkDiag.shared.touchLogging || ShotMode.isOn {
+            lastStamp = e.timestamp
+            InkDiag.shared.log("hit \(InkDiag.pt(point)) -> \(v.map { String(describing: type(of: $0)) } ?? "nil")")
+        }
+        return v
     }
 }

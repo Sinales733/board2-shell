@@ -143,8 +143,10 @@
   function sync(force) {
     if (!NI()) return;
     const br = btn.getBoundingClientRect();
+    /* 网页的草稿纸按钮在 App 里只占位；它所在的地方被抽屉、问答面板这些层盖住时告诉 App，App 的按钮也跟着藏（和网页按钮被盖住一样） */
+    let covered = false; try { covered = ABOVE.some((k) => { const el = $(k); if (!el || !el.classList.contains('on')) return false; const r = el.getBoundingClientRect(); return br.width > 0 && r.left < br.right && br.left < r.right && r.top < br.bottom && br.top < r.bottom; }); } catch (e) {}
     const m = { k: 'state', open: D.open, id: D.open ? D.id : null, theme: theme(), view: { x: V.x, y: V.y, z: V.z }, rects: D.open ? aboveRects() : [],
-      btn: [br.left, br.top, br.width, br.height], labels: { open: U('ui.draft.open'), close: U('ui.draft.close') } };
+      btn: [br.left, br.top, br.width, br.height], covered, labels: { open: U('ui.draft.open'), close: U('ui.draft.close') } };
     const js = JSON.stringify(m); if (js === lastSent && !force) return; lastSent = js; tell(m);
   }
   function flash(a) { const b = T(a); tool.querySelectorAll('.flash').forEach((x) => x.classList.remove('flash')); void b.offsetWidth; b.classList.add('flash'); clearTimeout(b._ft); b._ft = setTimeout(() => b.classList.remove('flash'), 700); }

@@ -184,7 +184,12 @@ final class ShotsUITests: XCTestCase {
             drag(a, b, velocity: 250, press: 0.3)
             let after = waitCount(before + 1)
             let (es, ee) = lastErr(a, b)
-            step(label, after == before + 1 && ee < 18 && es < 60, "count \(before)->\(after) start err \(Int(es)) end err \(Int(ee))")
+            // 手指真正抬起的位置（UIKit 报给画画手势的）：笔画最后一个点必须就在那里
+            var te = 9999.0
+            if let t = native()["lastTouchEnd"] as? [Double], t.count == 2, let ss = native()["strokes"] as? [[Double]], let s = ss.last, s.count == 4 {
+                te = hypot(s[2] - t[0], s[3] - t[1])
+            }
+            step(label, after == before + 1 && te < 4, "count \(before)->\(after) stroke end vs real touch \(String(format: "%.1f", te)) (vs requested drag: start \(Int(es)) end \(Int(ee)))")
         }
         /// 网页旧稿的取景窗和画布的一样（旧稿跟着画布走）
         func viewsMatch() -> (Bool, String) {
@@ -233,24 +238,30 @@ final class ShotsUITests: XCTestCase {
 
         // 草稿纸开着（只认笔）：手指点下面的选项不生效；原生按钮点一次收起；收起后点选项生效；再点一次打开，笔画还在
         cmd("finger off")
-        let clicks0 = web()["optClicks"] as? Int ?? -1
-        let optR = web()["opt"] as? [Double]
-        _ = tapRect(optR)
-        let clicks1 = web()["optClicks"] as? Int ?? -1
-        step("open: tap on option is blocked", optR != nil && clicks1 == clicks0 && count() == kept, "clicks \(clicks0)->\(clicks1) opt=\(optR ?? [])")
+        let pageR: [Double] = [W * 0.62, H * 0.5, 40, 40]
+        let clicks0 = web()["clicks"] as? Int ?? -1
+        _ = tapRect(pageR)
+        let clicks1 = web()["clicks"] as? Int ?? -1
+        step("open: tap on page is blocked", clicks1 == clicks0 && count() == kept, "page clicks \(clicks0)->\(clicks1)")
+        // 开关：按读屏标识找到 App 的按钮点一次（点不到会记下为什么）
+        let tgEl = app.buttons.matching(identifier: "b2draftToggle").firstMatch
+        let tgFound = tgEl.waitForExistence(timeout: 3), tgHit = tgFound && tgEl.isHittable
+        if tgHit { tgEl.tap(); Thread.sleep(forTimeInterval: 1.0) } else { _ = tapRect(native()["toggle"] as? [Double]) }
         let tg = native()["toggle"] as? [Double]
-        _ = tapRect(tg)
         if (web()["open"] as? Bool) != false {
             try? app.debugDescription.write(to: outDir.appendingPathComponent("\(name)-toggle-tree.txt"), atomically: true, encoding: .utf8)
         }
         step("toggle closes (one tap)", (web()["open"] as? Bool) == false && (native()["open"] as? Bool) == false && (native()["picker"] as? Bool) == false,
-             "web=\(web()["open"] ?? "nil") canvas=\(native()["open"] ?? "nil") toggle=\(tg ?? [])")
-        _ = tapRect(optR)
-        let clicks2 = web()["optClicks"] as? Int ?? -1
-        step("closed: tap on option works", clicks2 == clicks1 + 1, "clicks \(clicks1)->\(clicks2)")
-        _ = tapRect(native()["toggle"] as? [Double])
+             "web=\(web()["open"] ?? "nil") canvas=\(native()["open"] ?? "nil") toggle=\(tg ?? []) found=\(tgFound) hittable=\(tgHit)")
+        _ = tapRect(pageR)
+        let clicks2 = web()["clicks"] as? Int ?? -1
+        step("closed: tap on page works", clicks2 > clicks1, "page clicks \(clicks1)->\(clicks2)")
+        // 这个示例页里网页本来没有草稿纸按钮（量不到），收着时 App 的按钮也不出来：那就用命令打开
+        let hiddenWhenClosed = (native()["toggleHidden"] as? Bool) == true
+        if hiddenWhenClosed { cmd("open") } else { _ = tapRect(native()["toggle"] as? [Double]) }
         let c2 = waitCount(kept)
-        step("toggle reopens (one tap), strokes kept", (web()["open"] as? Bool) == true && (native()["picker"] as? Bool) == true && c2 == kept, "count \(kept)->\(c2)")
+        step("reopen, strokes kept", (web()["open"] as? Bool) == true && (native()["picker"] as? Bool) == true && (native()["toggleHidden"] as? Bool) == false && c2 == kept,
+             "count \(kept)->\(c2) via \(hiddenWhenClosed ? "cmd (toggle hidden: page has no draft button)" : "toggle")")
 
         // 只认笔时单指拖动挪纸：取景窗跟着手指走，没有多出笔画，网页旧稿跟着走
         let v0 = nview()

@@ -31,6 +31,7 @@ final class InkLayer: NSObject {
     private var theme = "night"
     private var labels = (open: "", close: "")
     private var webBtn = CGRect.zero
+    private var webBtnCovered = false
     private let maskLayer = CAShapeLayer()
 
     private var settingDrawing = false
@@ -119,6 +120,9 @@ final class InkLayer: NSObject {
             f = CGRect(x: host.bounds.width - host.safeAreaInsets.right - 12 - s, y: top + 12, width: s, height: s)
         }
         if toggle.frame != f { toggle.frame = f }
+        // 收着时：网页这一页本来就没有草稿纸按钮（量不到）、或者它被抽屉、问答面板盖住了，App 的按钮也不出来，免得压在别的东西上。
+        // 开着时一直在（要靠它收起）。
+        toggle.isHidden = !isOpen && (webBtn.width <= 4 || webBtnCovered)
         toggle.isOn = isOpen
         toggle.accessibilityLabel = isOpen ? labels.close : labels.open
     }
@@ -149,6 +153,7 @@ final class InkLayer: NSObject {
         if let b = body["btn"] as? [Double], b.count == 4, b.allSatisfy({ $0.isFinite }) {
             webBtn = CGRect(x: b[0], y: b[1], width: b[2], height: b[3])
         }
+        webBtnCovered = body["covered"] as? Bool ?? false
         if let rs = body["rects"] as? [[Double]] {
             canvas.passRects = rs.compactMap { r in
                 guard r.count == 4, r.allSatisfy({ $0.isFinite }) else { return nil }
@@ -156,7 +161,6 @@ final class InkLayer: NSObject {
             }
             applyMask()
         }
-        toggle.isHidden = false
 
         // 先处理换题：旧题存盘，再换成新题（取景窗：本机存过就用本机的，否则先用网页旧稿的）
         let newId = body["id"] as? String
@@ -258,6 +262,8 @@ final class InkLayer: NSObject {
         return true
     }
     private var lastInk: PKInkingTool?
+    /// 最近一次画画手势结束时手指 / 笔在屏幕上的位置（截图模式的状态文件用）
+    private var lastTouchEnd = CGPoint(x: -1, y: -1)
 
     static func toolName(_ t: PKTool) -> String {
         if let e = t as? PKEraserTool { return e.eraserType == .bitmap ? "eraser-bitmap" : "eraser-vector" }
@@ -272,6 +278,7 @@ final class InkLayer: NSObject {
         let names = [0: "possible", 1: "began", 2: "changed", 3: "ended", 4: "cancelled", 5: "failed"]
         if gr.state == .changed { return }
         let p = gr.location(in: canvas.superview)
+        if gr.state == .ended { lastTouchEnd = p }
         InkDiag.shared.log("draw \(names[gr.state.rawValue] ?? "?") at \(InkDiag.pt(p)) tool=\(InkLayer.toolName(canvas.tool)) strokes=\(canvas.drawing.strokes.count)")
     }
 
@@ -428,7 +435,7 @@ final class InkLayer: NSObject {
                 "view": [Double(v.x), Double(v.y), Double(v.z)], "tool": InkLayer.toolName(canvas.tool),
                 "picker": toolPicker.isVisible, "firstResponder": canvas.isFirstResponder,
                 "toggle": [Double(tf.minX), Double(tf.minY), Double(tf.width), Double(tf.height)], "toggleHidden": toggle.isHidden,
-                "policy": canvas.drawingPolicy.rawValue, "log": InkDiag.shared.tail(30)]
+                "policy": canvas.drawingPolicy.rawValue, "lastTouchEnd": [Double(lastTouchEnd.x), Double(lastTouchEnd.y)], "log": InkDiag.shared.tail(30)]
     }
 
     // MARK: - 自检（只在云端模拟器截图模式下用，题号都是测试用的，不碰真数据）
