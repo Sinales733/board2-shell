@@ -198,7 +198,9 @@ final class InkLayer: NSObject {
                 toolPicker.setVisible(false, forFirstResponder: anchor)
                 let r = anchor.resignFirstResponder()
                 canvas.isHidden = true
-                if !r { InkDiag.shared.log("picker anchor did not resign") }
+                // 第一响应者交回网页（不然收起后点网页的第一下可能先被拿去换第一响应者）
+                let w = webView?.becomeFirstResponder() ?? false
+                InkDiag.shared.log("close: anchor resign=\(r) web first=\(w) picker=\(toolPicker.isVisible)")
                 saveNow()
             }
             InkDiag.shared.log("canvas \(open ? "open" : "closed") strokes=\(canvas.drawing.strokes.count) picker=\(toolPicker.isVisible)")

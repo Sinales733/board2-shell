@@ -262,7 +262,9 @@ final class ShotsUITests: XCTestCase {
              "web=\(web()["open"] ?? "nil") canvas=\(native()["open"] ?? "nil") toggle=\(tg ?? []) found=\(tgFound) hittable=\(tgHit)")
         _ = tapRect(pageR)
         let clicks2 = web()["clicks"] as? Int ?? -1
-        step("closed: tap on page works", clicks2 > clicks1, "page pointerdowns \(clicks1)->\(clicks2)")
+        _ = tapRect([W * 0.62 + 30, H * 0.5 + 30, 40, 40])
+        let clicks3 = web()["clicks"] as? Int ?? -1
+        step("closed: first tap on page works", clicks2 > clicks1, "page pointerdowns \(clicks1)->\(clicks2) (second tap ->\(clicks3))")
         // 这个示例页里网页本来没有草稿纸按钮（量不到），收着时 App 的按钮也不出来：那就用命令打开
         let hiddenWhenClosed = (native()["toggleHidden"] as? Bool) == true
         if hiddenWhenClosed { cmd("open") } else { _ = tapRect(native()["toggle"] as? [Double]) }
