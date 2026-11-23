@@ -594,6 +594,13 @@
      （补来的 click 会晚一两秒，那时小弹层可能已经收了，click 会落到下面的页面上；也会把开关再拨回去）。
      鼠标、键盘这种没有触摸的点击照旧走 click（pointerup 生效过的那一下不再算）。 */
   let downEl = null, downAt = 0, upDone = false;
+  /* 诊断（App 里）：这一下在工具条上的各个事件：事件自带的时间戳（换成墙上时间）和处理函数实际执行的时刻，随 tap 消息发给 App */
+  let evs = [];
+  const wallOf = (e) => Math.round(performance.timeOrigin + e.timeStamp);
+  ['touchstart', 'pointerdown', 'touchend', 'pointerup', 'click'].forEach((n) => tool.addEventListener(n, (e) => {
+    if (n === 'touchstart' || (n === 'pointerdown' && !evs.some((x) => x.startsWith('ts:')))) evs = [];
+    evs.push((n === 'touchstart' ? 'ts' : n === 'pointerdown' ? 'pd' : n === 'touchend' ? 'te' : n === 'pointerup' ? 'pu' : 'cl') + ':' + wallOf(e) + '/' + Date.now());
+  }, { capture: true, passive: true }));
   const btnOf = (t) => (t && t.closest ? t.closest('[data-c], [data-a]') : null);
   tool.addEventListener('pointerdown', (e) => { downEl = btnOf(e.target); downAt = Date.now(); upDone = false; }, true);
   tool.addEventListener('pointerup', (e) => {
@@ -617,7 +624,7 @@
     const c = e.target.closest('[data-c]'); if (c) { ui.color = c.dataset.c; ui.tool = 'pen'; saveUI(); paintTool(); closePops(); return; }
     const b = e.target.closest('[data-a]'); if (!b || b.disabled) return;
     const a = b.dataset.a, doc = D.doc;
-    if (NI()) tell({ k: 'tap', a, t: Date.now(), d: downAt });   // App 记诊断日志：网页这边按下、生效的时间
+    if (NI()) tell({ k: 'tap', a, t: Date.now(), d: downAt, ev: evs.slice() });   // App 记诊断日志：这一下的事件时间线和 act() 执行时刻
     if (a !== 'clear') unsure();
     if (a === 'pen' || a === 'eraser') { ui.tool = a; saveUI(); paintTool(); closePops(); }
     else if (a === 'color' || a === 'more') pop(a, b);

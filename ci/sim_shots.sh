@@ -31,6 +31,15 @@ COMMON=(-project Board2Shell.xcodeproj -scheme Board2Shell -destination "platfor
 xcodebuild build-for-testing "${COMMON[@]}" > "$OUT/xcbuild.log" 2>&1
 echo "build-for-testing exit: $?"
 
+# 诊断轮：只量"写完字后第一下点工具条"的延迟（几种变体并排），不跑别的
+if [ -f ci/ONLY_LATENCY ]; then
+  xcodebuild test-without-building "${COMMON[@]}" -only-testing:Board2ShotsUITests/ShotsUITests/testToolLatency > "$OUT/xctest-latency.log" 2>&1
+  kill "$STUB" 2>/dev/null
+  grep -E "^LATENCY |error:|Test Case" "$OUT/xctest-latency.log" | head -n 60
+  cp -R "$HOME/b2shots/." "$OUT/" 2>/dev/null
+  exit 0
+fi
+
 # 动效录像：跑 testMotion 的同时录屏（启动淡入、设置面板开关、离线标记收展）
 xcrun simctl io "$UDID" recordVideo --codec=h264 --force "$OUT/motion.mp4" > "$OUT/record.log" 2>&1 &
 REC=$!

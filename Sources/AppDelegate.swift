@@ -9,6 +9,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationC
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // 点通知时系统会打开 App；设代理是为了 App 开着时到点也照样弹出横幅。
         UNUserNotificationCenter.current().delegate = self
+        TouchClock.install()   // 诊断：记触摸开始 / 结束时间（只旁听）
         if !ShotMode.isOn { DailyReminder.sync() }
 
         // 配音在静音模式下也要能出声。失败了也不影响别的功能。

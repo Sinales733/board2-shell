@@ -417,6 +417,75 @@ final class ShotsUITests: XCTestCase {
         return steps
     }
 
+    // MARK: - 写完字后第一下点工具条的延迟：几种变体并排量
+
+    /// 每个变体：开草稿纸 → 手指写一笔 → 不等，马上点工具条（橡皮）→ 记这一下 抬手→执行 的毫秒数；再隔 2 秒点一下（对照）。各做 3 次。
+    /// 变体（App 的 -b2var）：base 原样；a 写完不把第一响应者还给网页；b 画布永远不当第一响应者；c 写完不调网页（撤销状态）；
+    /// d 去掉画布的遮罩；e 不挂画画手势的回调；p 状态探针 2 秒一次（平时 0.25 秒）。结果写 latency.json。
+    func testToolLatency() {
+        _ = http("_online")
+        var out: [String: Any] = [:]
+        let variants = (ProcessInfo.processInfo.environment["B2_VARIANTS"] ?? "base,a,b,c,d,e,p").split(separator: ",").map(String.init)
+        for v in variants {
+            out[v] = latencyRun(v)
+        }
+        if let d = try? JSONSerialization.data(withJSONObject: out, options: [.prettyPrinted, .sortedKeys]) {
+            try? d.write(to: outDir.appendingPathComponent("latency.json"))
+        }
+        print("LATENCY \(out)")
+    }
+
+    private func latencyRun(_ variant: String) -> [String: Any] {
+        let name = "latency-\(variant)"
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        let readyURL = outDir.appendingPathComponent(name + ".ready")
+        let stateURL = outDir.appendingPathComponent(name + ".state.json")
+        let cmdURL = outDir.appendingPathComponent(name + ".cmd")
+        for u in [readyURL, stateURL, cmdURL, outDir.appendingPathComponent(name + ".ink.log")] { try? FileManager.default.removeItem(at: u) }
+        app.launchEnvironment = ["B2_OUT": outDir.path, "B2_NAME": name]
+        app.launchArguments = ["-b2shot", "inktest", "-b2theme", "night", "-b2q", "2009-01", "-b2server", server]
+            + (variant == "base" ? [] : ["-b2var", variant])
+        app.launch()
+        let deadline = Date().addingTimeInterval(45)
+        while Date() < deadline && !FileManager.default.fileExists(atPath: readyURL.path) { Thread.sleep(forTimeInterval: 0.3) }
+        Thread.sleep(forTimeInterval: 1.5)
+        func state() -> [String: Any] {
+            guard let d = try? Data(contentsOf: stateURL), let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return [:] }
+            return o
+        }
+        func web() -> [String: Any] { state()["web"] as? [String: Any] ?? [:] }
+        func native() -> [String: Any] { state()["native"] as? [String: Any] ?? [:] }
+        func cmd(_ c: String) { try? c.write(to: cmdURL, atomically: true, encoding: .utf8); Thread.sleep(forTimeInterval: 1.0) }
+        cmd("open"); cmd("reset"); cmd("finger on")
+        Thread.sleep(forTimeInterval: 1.5)
+        let W = (web()["W"] as? Double) ?? 820, H = (web()["H"] as? Double) ?? 1180
+        let base = app.webViews.firstMatch
+        _ = base.waitForExistence(timeout: 10)
+        func at(_ x: Double, _ y: Double) -> XCUICoordinate { base.coordinate(withNormalizedOffset: CGVector(dx: x / W, dy: y / H)) }
+        func btn(_ k: String) -> [Double]? { (web()["btn"] as? [String: Any])?[k] as? [Double] }
+        func tapAt(_ r: [Double]) { at(r[0] + r[2] / 2, r[1] + r[3] / 2).tap() }
+        func lastTap() -> [String: Any] { native()["lastTap"] as? [String: Any] ?? [:] }
+        var after: [Int] = [], idle: [Int] = [], detail: [[String: Any]] = []
+        guard let er = btn("eraser"), er.count == 4, let pn = btn("pen"), pn.count == 4 else { app.terminate(); return ["error": "no toolbar"] }
+        for i in 0..<3 {
+            let y = H * 0.3 + Double(i) * 80
+            // 写一笔，抬手后不等，马上点工具条
+            at(W * 0.15, y).press(forDuration: 0.3, thenDragTo: at(W * 0.5, y + 10), withVelocity: 300, thenHoldForDuration: 0.05)
+            tapAt(er)
+            Thread.sleep(forTimeInterval: 3.0)   // 只是等日志写出来再读，不是判定条件
+            let t1 = lastTap(); after.append(t1["liftToAct"] as? Int ?? -1); detail.append(["kind": "after-stroke", "tap": t1])
+            // 对照：前面没写字，隔 2 秒再点一下
+            Thread.sleep(forTimeInterval: 2.0)
+            tapAt(pn)
+            Thread.sleep(forTimeInterval: 3.0)
+            let t2 = lastTap(); idle.append(t2["liftToAct"] as? Int ?? -1); detail.append(["kind": "idle", "tap": t2])
+        }
+        print("LATENCY \(variant) after-stroke=\(after) idle=\(idle)")
+        app.terminate()
+        return ["afterStroke": after, "idle": idle, "detail": detail]
+    }
+
     func testShots() {
         _ = http("_online")
         write("selftest-first.json", shot("selftest-first", scene: "selftest", orient: .landscapeLeft, theme: "night"))

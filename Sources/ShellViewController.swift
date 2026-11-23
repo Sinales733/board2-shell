@@ -905,7 +905,7 @@ extension ShellViewController {
                     self.inkCommand(c.trimmingCharacters(in: .whitespacesAndNewlines))
                 }
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { self.inkProbe() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + (ShotVariant.on("p") ? 2.0 : 0.25)) { self.inkProbe() }
         }
     }
 

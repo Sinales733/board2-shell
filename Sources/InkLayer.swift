@@ -54,6 +54,8 @@ final class InkLayer: NSObject {
     /// 这道题已经从盘上读完了吗（没读完时存盘改成"和盘上那份合并再存"，免得盖掉原笔迹）
     private var loaded = true
     private var closeSeq = 0
+    /// 最近一次工具条点击的时间线（截图模式状态文件用）
+    private var lastTap: [String: Any] = [:]
     private var toolName = "pen", colorName = "ink", finger = false
     /// 测试用：强制手指也写（模拟器里写字用），nil = 跟网页工具条的手指书写开关走
     private var testFingerOverride: Bool?
@@ -100,8 +102,8 @@ final class InkLayer: NSObject {
             canvas.trailingAnchor.constraint(equalTo: host.trailingAnchor)
         ])
         maskLayer.fillRule = .evenOdd
-        canvas.layer.mask = maskLayer
-        canvas.drawingGestureRecognizer.addTarget(self, action: #selector(drawingGesture(_:)))
+        if !ShotVariant.on("d") { canvas.layer.mask = maskLayer }
+        if !ShotVariant.on("e") { canvas.drawingGestureRecognizer.addTarget(self, action: #selector(drawingGesture(_:))) }
 
         toggle.isHidden = true
         toggle.addTarget(self, action: #selector(togglePressed), for: .touchUpInside)
@@ -182,8 +184,13 @@ final class InkLayer: NSObject {
         case "tap":
             // 工具条每点一下：网页收到的时间（网页的毫秒时钟）和 App 收到的时间都记下，点不动时看卡在哪一段
             // 按下 → 网页生效（抬起）→ App 收到：哪一段慢一眼看得出
-            let wt = (body["t"] as? Double).map { Int64($0) } ?? 0, wd = (body["d"] as? Double).map { Int64($0) } ?? 0
-            InkDiag.shared.log("toolbar tap \(body["a"] as? String ?? "?") web_down=\(wd) web_up=\(wt) held_ms=\(wd > 0 && wt > 0 ? String(wt - wd) : "?") app_lag_ms=\(wt > 0 ? String(InkStore.now() - wt) : "?")")
+            // 时间线（墙上时间毫秒）：系统收到触摸开始 / 结束（TouchClock）→ 网页各事件的时间戳和处理时刻 → act() 执行 → App 收到
+            let act = (body["t"] as? Double).map { Int64($0) } ?? 0
+            let ev = (body["ev"] as? [String]) ?? []
+            let lift = TouchClock.lastEnd?.ms ?? 0, down = TouchClock.lastBegin?.ms ?? 0
+            let liftToAct = lift > 0 && act > 0 ? act - lift : -1
+            lastTap = ["a": body["a"] as? String ?? "?", "down": down, "lift": lift, "act": act, "liftToAct": liftToAct, "ev": ev, "recv": InkStore.now()]
+            InkDiag.shared.log("toolbar tap \(body["a"] as? String ?? "?") down=\(down) lift=\(lift) act=\(act) lift_to_act=\(liftToAct) app_recv=\(InkStore.now()) ev=\(ev.joined(separator: " "))")
             return
         case "undo":
             let can = canvas.undoManager?.canUndo ?? false
@@ -379,7 +386,7 @@ final class InkLayer: NSObject {
         let p = gr.location(in: canvas.superview)
         if gr.state == .ended { lastTouchEnd = p }
         // 写完一笔：画布要是拿了第一响应者，交回网页（不然下一下点工具条，网页要先抢回第一响应者，点击会晚到）
-        if gr.state == .ended || gr.state == .cancelled, canvas.isFirstResponder {
+        if gr.state == .ended || gr.state == .cancelled, canvas.isFirstResponder, !ShotVariant.on("a") {
             let w = webView?.becomeFirstResponder() ?? false
             InkDiag.shared.log("first responder back to web=\(w)")
         }
@@ -559,7 +566,7 @@ final class InkLayer: NSObject {
         let tf = toggle.frame
         return ["count": canvas.drawing.strokes.count, "strokes": strokes, "prints": prints, "open": isOpen, "id": id ?? NSNull(),
                 "view": [Double(v.x), Double(v.y), Double(v.z)], "tool": InkLayer.toolName(canvas.tool),
-                "color": colorName, "canUndo": canvas.undoManager?.canUndo ?? false, "lastColor": lastStrokeColor(),
+                "color": colorName, "canUndo": canvas.undoManager?.canUndo ?? false, "lastTap": lastTap, "variant": Array(ShotVariant.set), "lastColor": lastStrokeColor(),
                 "webBtn": [Double(webBtn.minX), Double(webBtn.minY), Double(webBtn.width), Double(webBtn.height)], "covered": webBtnCovered,
                 "passRects": canvas.passRects.map { [Double($0.minX), Double($0.minY), Double($0.width), Double($0.height)] },
                 "screen": [Double(host?.bounds.width ?? 0), Double(host?.bounds.height ?? 0)],
@@ -645,7 +652,7 @@ extension InkLayer: PKCanvasViewDelegate {
         let n = canvasView.drawing.strokes.count
         InkDiag.shared.log("strokes \(lastCount)->\(n) tool=\(InkLayer.toolName(canvasView.tool))")
         lastCount = n
-        tellUndo()
+        if !ShotVariant.on("c") { tellUndo() }
         guard id != nil else { return }
         changed()
     }
@@ -702,6 +709,7 @@ extension InkLayer: PKCanvasViewDelegate {
 /// 画布：网页"纸上面的那几层"（工具条和它的小弹层、问答面板、抽屉、提示条……）那几块不接触摸，让给下面的网页。
 final class InkCanvas: PKCanvasView {
     var passRects: [CGRect] = []
+    override var canBecomeFirstResponder: Bool { ShotVariant.on("b") ? false : super.canBecomeFirstResponder }
     private var lastLogged: TimeInterval = -1
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         guard super.point(inside: point, with: event) else { return false }
