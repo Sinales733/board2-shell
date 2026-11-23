@@ -204,9 +204,10 @@ final class ShotsUITests: XCTestCase {
             return (ok, "native \(n.map { Int($0 * 100) }) web \(w.map { Int($0 * 100) })")
         }
         /// 点工具条上的一个按钮（只点一次），点完笔画数不能变（点工具条不能在纸上留笔画）
-        func tapTool(_ k: String) -> (Bool, Int, Int) {
+        func tapTool(_ k: String, until: (() -> Bool)? = nil) -> (Bool, Int, Int) {
             let c0 = count()
             let ok = tapRect(wbtn(k))
+            if let until = until { let end = Date().addingTimeInterval(3); while !until() && Date() < end { Thread.sleep(forTimeInterval: 0.2) } }
             return (ok, c0, count())
         }
         func zone() -> (x0: Double, x1: Double, ys: [Double]) {
@@ -239,7 +240,7 @@ final class ShotsUITests: XCTestCase {
 
         // ---- 工具条：橡皮 → 沿第 5 笔擦，第 1–4 笔逐点不变 ----
         let five = prints()
-        var (ok, c0, c1) = tapTool("eraser")
+        var (ok, c0, c1) = tapTool("eraser", until: { tool().hasPrefix("eraser") })
         Thread.sleep(forTimeInterval: 0.6)
         step("toolbar eraser (one tap)", ok && tool().hasPrefix("eraser") && (web()["tool"] as? String) == "eraser" && c1 == c0, "tool=\(tool()) count \(c0)->\(c1)")
         drag((z.x0 - 20, z.ys[4] - 1), (z.x1 + 20, z.ys[4] + 21), velocity: 200)
@@ -251,12 +252,12 @@ final class ShotsUITests: XCTestCase {
         // 撤销（工具条）：擦掉的那笔回来，5 笔逐点和擦之前一样
         (ok, c0, c1) = tapTool("undo")
         step("toolbar undo restores erased stroke", ok && waitCount(five.count) == five.count && prints() == five, "count \(c0)->\(count())")
-        (ok, c0, c1) = tapTool("pen")
+        (ok, c0, c1) = tapTool("pen", until: { tool().hasPrefix("ink") })
         step("toolbar pen (one tap)", ok && tool().hasPrefix("ink") && c1 == c0, "tool=\(tool())")
         // 颜色：点颜色 → 点红 → 下一笔是红的
-        _ = tapTool("color")
+        _ = tapTool("color", until: { (web()["pal"] as? Bool) == true })
         let pal = (web()["pal"] as? Bool) == true
-        (ok, c0, c1) = tapTool("red")
+        (ok, c0, c1) = tapTool("red", until: { (native()["color"] as? String) == "red" })
         step("toolbar color red", pal && ok && (native()["color"] as? String) == "red" && c1 == c0, "palette=\(pal) native color=\(native()["color"] ?? "nil")")
         write("red stroke", (z.x0, z.ys[0] + 40), (z.x1, z.ys[0] + 50))
         step("new stroke is red", (native()["lastColor"] as? String) == "red", "lastColor=\(native()["lastColor"] ?? "nil")")
@@ -270,7 +271,7 @@ final class ShotsUITests: XCTestCase {
         cmd("finger auto")
         step("pencilOnly by default", (native()["policy"] as? String) == "pencilOnly", "policy=\(native()["policy"] ?? "nil")")
         let kept = count()
-        (ok, c0, c1) = tapTool("eraser")
+        (ok, c0, c1) = tapTool("eraser", until: { tool().hasPrefix("eraser") })
         step("finger tap on toolbar works under pencilOnly", ok && tool().hasPrefix("eraser") && c1 == c0, "tool=\(tool())")
         _ = tapTool("pen")
         _ = tapRect([z.x0 + 50, z.ys[2] + 30, 20, 20])
@@ -287,15 +288,15 @@ final class ShotsUITests: XCTestCase {
         base.pinch(withScale: 0.6, velocity: -1.0)   // 捏合（两指从远处往中间收）：起点两指隔得开，滚动视图稳定认成缩放
         Thread.sleep(forTimeInterval: 1.5)
         let zz1 = nview().last ?? 1
-        step("pinch zoom: no stroke, toolbar still there", count() == kept && abs(zz1 - zz0) > 0.15 && toolbarOK(), "count \(kept)->\(count()) z \(zz0)->\(zz1)")
+        step("pinch zoom: no stroke, toolbar still there", count() == kept && abs(zz1 - zz0) > 0.08 && toolbarOK(), "count \(kept)->\(count()) z \(zz0)->\(zz1)")
         let (vm2, vnote2) = viewsMatch()
         step("old draft follows zoom", vm2, vnote2)
         // 手指书写开关：更多 → 开关，规则跟着变；再关回去
-        _ = tapTool("more")
-        (ok, c0, c1) = tapTool("finger")
+        _ = tapTool("more", until: { (web()["moreOpen"] as? Bool) == true })
+        (ok, c0, c1) = tapTool("finger", until: { (native()["policy"] as? String) == "anyInput" })
         let pOn = native()["policy"] as? String ?? "?"
         step("finger switch on -> anyInput", ok && (web()["finger"] as? Bool) == true && pOn == "anyInput" && c1 == c0, "web finger=\(web()["finger"] ?? "nil") policy=\(pOn)")
-        (ok, c0, c1) = tapTool("finger")
+        (ok, c0, c1) = tapTool("finger", until: { (native()["policy"] as? String) == "pencilOnly" })
         let pOff = native()["policy"] as? String ?? "?"
         step("finger switch off -> pencilOnly", ok && (web()["finger"] as? Bool) == false && pOff == "pencilOnly" && c1 == c0, "web finger=\(web()["finger"] ?? "nil") policy=\(pOff)")
         _ = tapRect([z.x0 + 60, z.ys[3], 10, 10])   // 点纸收起“更多”

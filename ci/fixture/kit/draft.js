@@ -590,20 +590,24 @@
     p.style.top = Math.max(0, anchorEl.offsetTop + anchorEl.offsetHeight / 2 - 26) + 'px'; p.classList.add('on');
     const r = p.getBoundingClientRect(); if (r.bottom > innerHeight - 8) p.style.top = (parseFloat(p.style.top) - (r.bottom - innerHeight + 8)) + 'px';
   }
-  /* 按下和抬起在同一个按钮上就算点了一下，抬起时立刻生效；随后浏览器补来的 click 不再算第二次 */
-  let downEl = null, upAt = 0;
-  tool.addEventListener('pointerdown', (e) => { downEl = e.target.closest && e.target.closest('[data-c], [data-a]'); }, true);
+  /* 按下和抬起在同一个按钮上就算点了一下，抬起时立刻生效。手指 / 笔点的：touchend 上 preventDefault，浏览器就不再补一个 click
+     （补来的 click 会晚一两秒，那时小弹层可能已经收了，click 会落到下面的页面上，比如打开原卷浮层；也会把开关再拨回去）。
+     鼠标、键盘这种没有触摸的点击照旧走 click（pointerup 生效过的那一下不再算）。 */
+  let downEl = null, downAt = 0, upDone = false;
+  const btnOf = (t) => (t && t.closest ? t.closest('[data-c], [data-a]') : null);
+  tool.addEventListener('pointerdown', (e) => { downEl = btnOf(e.target); downAt = Date.now(); upDone = false; }, true);
   tool.addEventListener('pointerup', (e) => {
-    const el = e.target.closest && e.target.closest('[data-c], [data-a]');
+    const el = btnOf(e.target);
     if (!el || el !== downEl || el.dataset.a === 'grip' || el.dataset.a === 'alpha') { downEl = null; return; }
-    downEl = null; upAt = performance.now(); act(e);
+    downEl = null; upDone = true; act(e);
   });
-  tool.addEventListener('click', (e) => { if (performance.now() - upAt < 800) return; act(e); });
+  tool.addEventListener('touchend', (e) => { const el = btnOf(e.target); if (el && el.dataset.a !== 'grip' && el.dataset.a !== 'alpha') e.preventDefault(); }, { passive: false });
+  tool.addEventListener('click', (e) => { if (upDone) { upDone = false; return; } act(e); });
   function act(e) {
     const c = e.target.closest('[data-c]'); if (c) { ui.color = c.dataset.c; ui.tool = 'pen'; saveUI(); paintTool(); closePops(); return; }
     const b = e.target.closest('[data-a]'); if (!b || b.disabled) return;
     const a = b.dataset.a, doc = D.doc;
-    if (NI()) tell({ k: 'tap', a, t: Date.now() });   // App 记诊断日志：网页这边收到点击的时间
+    if (NI()) tell({ k: 'tap', a, t: Date.now(), d: downAt });   // App 记诊断日志：网页这边按下、生效的时间
     if (a !== 'clear') unsure();
     if (a === 'pen' || a === 'eraser') { ui.tool = a; saveUI(); paintTool(); closePops(); }
     else if (a === 'color' || a === 'more') pop(a, b);

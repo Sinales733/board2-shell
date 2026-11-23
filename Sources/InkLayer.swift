@@ -181,8 +181,9 @@ final class InkLayer: NSObject {
         case "state": break
         case "tap":
             // 工具条每点一下：网页收到的时间（网页的毫秒时钟）和 App 收到的时间都记下，点不动时看卡在哪一段
-            let wt = (body["t"] as? Double).map { Int64($0) } ?? 0
-            InkDiag.shared.log("toolbar tap \(body["a"] as? String ?? "?") web_t=\(wt) app_lag_ms=\(wt > 0 ? String(InkStore.now() - wt) : "?")")
+            // 按下 → 网页生效（抬起）→ App 收到：哪一段慢一眼看得出
+            let wt = (body["t"] as? Double).map { Int64($0) } ?? 0, wd = (body["d"] as? Double).map { Int64($0) } ?? 0
+            InkDiag.shared.log("toolbar tap \(body["a"] as? String ?? "?") web_down=\(wd) web_up=\(wt) held_ms=\(wd > 0 && wt > 0 ? String(wt - wd) : "?") app_lag_ms=\(wt > 0 ? String(InkStore.now() - wt) : "?")")
             return
         case "undo":
             let can = canvas.undoManager?.canUndo ?? false
