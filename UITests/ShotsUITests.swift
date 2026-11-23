@@ -224,9 +224,10 @@ final class ShotsUITests: XCTestCase {
         step("ready, closed, native button over web button", ready && (web()["open"] as? Bool) == false && (native()["toggleHidden"] as? Bool) == false && centerDiff < 1.5,
              "ready=\(ready) toggle=\(tg0) webBtn=\(wb) center diff \(String(format: "%.2f", centerDiff))")
         let tgEl = app.buttons.matching(identifier: "b2draftToggle").firstMatch
+        /// 点 App 的草稿纸按钮一次：按读屏标识找到就点它，找不到 / 系统说点不到就按它的位置点（都只点一次）
         func tapToggle() -> Bool {
-            guard tgEl.waitForExistence(timeout: 3), tgEl.isHittable else { return false }
-            tgEl.tap(); Thread.sleep(forTimeInterval: 1.2); return true
+            if tgEl.waitForExistence(timeout: 3) && tgEl.isHittable { tgEl.tap(); Thread.sleep(forTimeInterval: 1.2); return true }
+            let ok = tapRect(native()["toggle"] as? [Double]); Thread.sleep(forTimeInterval: 0.2); return ok
         }
         let t1 = tapToggle()
         step("open by tapping draft button (one tap)", t1 && (web()["open"] as? Bool) == true && (native()["open"] as? Bool) == true && toolbarOK(),
@@ -306,7 +307,11 @@ final class ShotsUITests: XCTestCase {
             drag((g[0] + g[2] / 2, g[1] + g[3] / 2), (g[0] + g[2] / 2 - 30, g[1] + g[3] / 2 + 150), velocity: 300, press: 0.2, hold: 0.2)
             Thread.sleep(forTimeInterval: 1.0)
             let d1 = web()["dtool"] as? [Double] ?? d0
-            step("drag grip moves toolbar, no stroke", d1[1] - d0[1] > 60 && count() == c && toolbarOK(), "toolbar top \(Int(d0[1]))->\(Int(d1[1])) count \(c)->\(count())")
+            Thread.sleep(forTimeInterval: 1.5)
+            let opened = web()["aboveOn"] as? [String] ?? []
+            step("drag grip moves toolbar, no stroke, nothing opened below", d1[1] - d0[1] > 60 && count() == c && toolbarOK() && opened.isEmpty,
+                 "toolbar top \(Int(d0[1]))->\(Int(d1[1])) count \(c)->\(count()) opened=\(opened) clicks=\(web()["lastClicks"] ?? "nil")")
+            if !opened.isEmpty { cmd("closeall") }
             if let g2 = wbtn("grip") { drag((g2[0] + g2[2] / 2, g2[1] + g2[3] / 2), (g2[0] + g2[2] / 2, g2[1] + g2[3] / 2 - 150), velocity: 300, press: 0.2, hold: 0.2) }
             Thread.sleep(forTimeInterval: 1.0)
         } else { step("drag grip moves toolbar, no stroke", false, "no grip rect") }

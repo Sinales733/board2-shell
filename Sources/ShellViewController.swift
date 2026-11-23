@@ -880,12 +880,12 @@ extension ShellViewController {
     fileprivate func inkProbe() {
         let js = """
         (function(){var r=function(el){if(!el)return null;var b=el.getBoundingClientRect();return [b.left,b.top,b.width,b.height];};
-        if(window.__b2clicks===undefined){window.__b2clicks=0;document.addEventListener('pointerdown',function(){window.__b2clicks++;},true);}
+        if(window.__b2clicks===undefined){window.__b2clicks=0;document.addEventListener('pointerdown',function(){window.__b2clicks++;},true);}if(!window.__b2lc){window.__b2lc=[];document.addEventListener('click',function(e){var t=e.target,n=(t.id||t.className||t.tagName)+'';window.__b2lc.push(Math.round(performance.now())+':'+n.slice(0,30)+'@'+Math.round(e.clientX)+','+Math.round(e.clientY)+(e.isTrusted?'':'(synthetic)'));if(window.__b2lc.length>8)window.__b2lc.shift();},true);}
         var d=window.Kit&&Kit.draft,o=document.querySelector('.opt'),t=document.getElementById('dtool'),q=function(a){return t&&t.querySelector(a);};
         var cl=q('[data-a="clear"]'),su=q('.dsure');
         return JSON.stringify({id:d&&d.D.id,open:d&&d.D.open,tool:d&&d.ui.tool,color:d&&d.ui.color,finger:d&&!!d.ui.finger,side:d&&d.ui.side,
         V:d&&[d.V.x,d.V.y,d.V.z],W:innerWidth,H:innerHeight,q:window.Board2&&Board2.id,opt:r(o),clicks:window.__b2clicks,
-        v2:d&&d.doc?d.doc.s.length:-1,aboveOn:['#fbp','#drawer','#sheet','#weak','#akPg','#akHere','.toast'].filter(function(k){var e=document.querySelector(k);return e&&e.classList.contains('on');}),stem:r(document.getElementById('stem')),dtoolShown:!!(t&&t.offsetWidth),dtool:r(t),draftBtn:r(document.getElementById('draftBtn')),
+        v2:d&&d.doc?d.doc.s.length:-1,lastClicks:window.__b2lc,aboveOn:['#fbp','#drawer','#sheet','#weak','#akPg','#akHere','.toast'].filter(function(k){var e=document.querySelector(k);return e&&e.classList.contains('on');}),stem:r(document.getElementById('stem')),dtoolShown:!!(t&&t.offsetWidth),dtool:r(t),draftBtn:r(document.getElementById('draftBtn')),
         clearSure:!!(cl&&cl.classList.contains('sure')),sureShown:!!(su&&su.classList.contains('on')),undoDisabled:!!(q('[data-a="undo"]')||{}).disabled,
         btn:{grip:r(q('[data-a="grip"]')),pen:r(q('[data-a="pen"]')),eraser:r(q('[data-a="eraser"]')),color:r(q('[data-a="color"]')),undo:r(q('[data-a="undo"]')),
         clear:r(cl),more:r(q('[data-a="more"]')),close:r(q('[data-a="close"]')),red:r(q('.dpal [data-c="red"]')),finger:r(q('[data-a="finger"]'))},
