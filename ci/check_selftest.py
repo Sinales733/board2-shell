@@ -55,6 +55,7 @@ check(on.get("serverMatchesLocal") is True, f"在线：电脑上留的不是最�
 check(on.get("tIsInteger") is True, "在线：时间不是整数毫秒（第 24 条）")
 check(on.get("idleTimerDisabled") is True, "在线：屏幕常亮没打开（第 13 条）")
 check(on.get("mergeRoundTrip") is True, f"在线：存盘读回再合并，笔画变多了（creationDate 全精度相等={on.get('creationDateExactAfterRoundTrip')}）")
+check(on.get("legacySource") == "fixture", f"在线：旧笔迹样本不是示例页里那份（{on.get('legacySource')}）")
 check(on.get("legacyReadSame") is True, f"在线：旧笔迹样本读出来不一样（来源 {on.get('legacySource')}，读到 {on.get('legacyStrokes')} 笔）")
 
 off = load("selftest-offline.json")

@@ -78,7 +78,7 @@ final class ShotsUITests: XCTestCase {
     func testMotion() {
         _ = http("_online")
         for t in themes {
-            shot("motion-settings-\(t)", scene: "motion", orient: .landscapeLeft, theme: t, screenshot: false, wait: 40)
+            shot("motion-settings-\(t)", scene: "motion", orient: .landscapeLeft, theme: t, screenshot: false, wait: 80)   // 模拟器刚开机时第一次启动偶尔很慢
         }
         _ = http("_offline")
         for t in themes {
@@ -275,7 +275,7 @@ final class ShotsUITests: XCTestCase {
         let (vm, vnote) = viewsMatch()
         step("old draft follows canvas", vm, vnote)
         let zz0 = nview().last ?? 1
-        base.pinch(withScale: 1.6, velocity: 1.2)
+        app.pinch(withScale: 1.8, velocity: 1.5)
         Thread.sleep(forTimeInterval: 1.5)
         let zz1 = nview().last ?? 1
         step("pinch zoom: no stroke, toolbar still there", count() == kept && abs(zz1 - zz0) > 0.15 && toolbarOK(), "count \(kept)->\(count()) z \(zz0)->\(zz1)")
@@ -295,11 +295,12 @@ final class ShotsUITests: XCTestCase {
         if let g = wbtn("grip"), g.count == 4 {
             let (W, _) = wh()
             let c = count()
-            drag((g[0] + g[2] / 2, g[1] + g[3] / 2), (side0 == "r" ? W * 0.15 : W * 0.85, g[1] + g[3] / 2 + 40), velocity: 400, press: 0.2, hold: 0.2)
+            // 拖过屏幕中线一段就够换边（松手时贴最近的一边）
+            drag((g[0] + g[2] / 2, g[1] + g[3] / 2), (side0 == "r" ? W * 0.5 - 150 : W * 0.5 + 150, g[1] + g[3] / 2 + 40), velocity: 300, press: 0.2, hold: 0.2)
             Thread.sleep(forTimeInterval: 1.0)
             let side1 = web()["side"] as? String ?? "?"
             step("drag grip moves toolbar, no stroke", side1 != side0 && count() == c && toolbarOK(), "side \(side0)->\(side1) count \(c)->\(count())")
-            if let g2 = wbtn("grip") { let (W2, _) = wh(); drag((g2[0] + g2[2] / 2, g2[1] + g2[3] / 2), (side1 == "r" ? W2 * 0.15 : W2 * 0.85, g2[1] + g2[3] / 2), velocity: 400, press: 0.2, hold: 0.2) }
+            if let g2 = wbtn("grip") { let (W2, _) = wh(); drag((g2[0] + g2[2] / 2, g2[1] + g2[3] / 2), (side1 == "r" ? W2 * 0.5 - 150 : W2 * 0.5 + 150, g2[1] + g2[3] / 2), velocity: 300, press: 0.2, hold: 0.2) }
             Thread.sleep(forTimeInterval: 1.0)
         } else { step("drag grip moves toolbar, no stroke", false, "no grip rect") }
 
@@ -328,8 +329,10 @@ final class ShotsUITests: XCTestCase {
 
         // ---- 只认笔时开着点页面：页面收不到；原生按钮收起（一次）；收起后第一下到页面；再点按钮打开（一次），笔画还在 ----
         cmd("finger auto")
+        // 点页面：点题干正文（点了不触发任何操作，不会弹出面板盖住草稿纸按钮）
         let (W0, H0) = wh()
-        let pageR: [Double] = [W0 * 0.3, H0 * 0.75, 40, 40]
+        let stem = web()["stem"] as? [Double] ?? []
+        let pageR: [Double] = stem.count == 4 && stem[2] > 40 ? [stem[0] + stem[2] / 2 - 10, stem[1] + min(stem[3], 60) / 2 - 10, 20, 20] : [W0 * 0.3, H0 * 0.75, 40, 40]
         let p0 = web()["clicks"] as? Int ?? -1
         _ = tapRect(pageR)
         let p1 = web()["clicks"] as? Int ?? -1
