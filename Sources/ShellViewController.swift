@@ -139,6 +139,23 @@ final class ShellViewController: UIViewController {
 
     /// 讲解页选题抽屉顶上那排小图标里加一个"设置"（在昼夜按钮左边），点了叫出原生设置面板。
     /// 只在 App 里有（Safari 里没有 b2shell 就不加）；样式照网页 .thbtn。
+    /// 页面一开就先建好一个 AudioContext（不发声，系统让它先处于暂停），网页的音效第一次要它时直接给这一个：
+    /// 第一下点按时只需要 resume，不用当场建音频上下文。
+    static let audioWarmJS = """
+    (function () {
+      try {
+        var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+        var pre = null;
+        var make = function () { if (!pre) { pre = new AC(); } return pre; };
+        var W = function () { return make(); };
+        W.prototype = AC.prototype;
+        window.AudioContext = W; if (window.webkitAudioContext) window.webkitAudioContext = W;
+        var warm = function () { try { make(); } catch (e) {} };
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', warm); else warm();
+      } catch (e) {}
+    })();
+    """
+
     private static let gearJS = """
     (function () {
       try {
@@ -313,6 +330,14 @@ final class ShellViewController: UIViewController {
         config.userContentController.addUserScript(WKUserScript(source: ShellViewController.logJS,
                                                                 injectionTime: .atDocumentStart,
                                                                 forMainFrameOnly: true))
+        // 诊断变体：x = 网页拿不到 AudioContext（音效解锁什么都不做）；y = 页面一开就先建好 AudioContext（第一下点按只需 resume）
+        if ShotVariant.on("x") {
+            config.userContentController.addUserScript(WKUserScript(source: "window.AudioContext = undefined; window.webkitAudioContext = undefined;",
+                                                                    injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
+        if ShotVariant.on("y") {
+            config.userContentController.addUserScript(WKUserScript(source: ShellViewController.audioWarmJS, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
         config.userContentController.addUserScript(WKUserScript(source: InkLayer.flagScript,
                                                                 injectionTime: .atDocumentStart,
                                                                 forMainFrameOnly: true))

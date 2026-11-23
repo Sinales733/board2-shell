@@ -48,6 +48,10 @@
      清空从“更多”挪到工具条第一层（Safari 里也一样），两次确认照旧：第一次点变成确认态（红框 + 旁边一句 ui.draft.clearSure），4 秒内再点才清。
      App 里清空 = App 的新笔迹 + 这里垫底的旧 v2 笔迹一起清（旧的写回电脑），App 的撤销能把两样都恢复（本次打开期间）。
      每点一下工具条告诉 App 一声（tap，带这边的时间），App 记诊断日志。
+     v11（2026-11-24，配 App 1.8，复审后）：抬起时手指已滑出按钮不算；工具条外一有新的按下就不再拦 click，只拦按下点附近、600 毫秒内的；
+     小弹层开合、拖手柄松手、转屏立刻报位置；清空确认气泡吞掉触摸；清空和 App 的撤销一一对应（每次清空记一份，换题、收起清掉）；
+     旧稿写回电脑失败先存本机、连上再补传，两次写按先后排队；进入确认态 300 毫秒内的第二下不算；换题取消确认态；
+     放不下时工具条先收紧、再折成两列；缩放比例按钮回到 100% 并回到有笔迹的地方（App 里把新笔迹的范围也算上）；键盘弹出时位置按可见区域换算。
      工具条按钮在手指 / 笔抬起（pointerup）时就生效，不等浏览器合成的 click：模拟器里实测，刚在 App 的画布上写完字，
      第一下点工具条的 click 要晚将近 2 秒才到（App 1.8 测试日志），1.7 真机上工具条“点了好久才动”也是这个样子。 */
 (function () {
@@ -75,7 +79,7 @@
   const tell = (m) => { try { window.webkit.messageHandlers.b2ink.postMessage(m); } catch (e) {} };
   const ui = Object.assign({ alpha: 1, finger: false, color: 'ink', tool: 'pen', side: 'r', y: 0.5 }, stored(UIKEY, {}));
   const saveUI = () => store(UIKEY, ui);
-  const D = { open: false, id: null, doc: null, hist: [], cur: null, lastPen: 0, lastDraw: 0, server: null, dirty: false, vdirty: false, saveT: 0, tok: 0, warned: false,
+  const D = { clears: [], open: false, id: null, doc: null, hist: [], cur: null, lastPen: 0, lastDraw: 0, server: null, dirty: false, vdirty: false, saveT: 0, tok: 0, warned: false,
     W: innerWidth, H: innerHeight, rms: 0, xf: null, stats: { renders: 0, drawn: 0 } };
   const V = { x: 0, y: 0, z: 1 };   // 取景窗：屏幕 = 纸面 × z + (x, y)
 
@@ -141,11 +145,13 @@
     const b = T('zoom'); b.querySelector('span').textContent = n + '%';
     b.setAttribute('aria-label', String(U('ui.draft.zoom') || '').replace('{n}', n));
   }
-  const NV = { undo: false };   // App 回报的：新笔迹能不能撤销
+  const NV = { undo: false, bounds: null };   // App 回报的：新笔迹能不能撤销、新笔迹在纸面上的范围 [x0, y0, x1, y1]
   function paintUndo() { T('undo').disabled = NI() ? !NV.undo : !D.hist.length; }
   /* 纸上面那几层（工具条、草稿纸按钮、弹层、问答面板、抽屉……）在屏幕上的位置：App 在这些地方不收笔、不显示新字 */
+  /* 键盘弹出时页面会在屏幕上整体错开（visualViewport.offsetTop）：报给 App 的位置要换成屏幕上的 */
+  const vvOff = () => { const v = window.visualViewport; return v ? [v.offsetLeft || 0, v.offsetTop || 0] : [0, 0]; };
   function aboveRects() {
-    const out = [], add = (el) => { if (!el) return; const r = el.getBoundingClientRect(); if (r.width > 0 && r.height > 0) out.push([r.left, r.top, r.width, r.height]); };
+    const o = vvOff(), out = [], add = (el) => { if (!el) return; const r = el.getBoundingClientRect(); if (r.width > 0 && r.height > 0) out.push([r.left - o[0], r.top - o[1], r.width, r.height]); };
     add(tool); if (!NI()) add(btn); tool.querySelectorAll('.dpop.on').forEach(add); add($('.toast.on'));
     ABOVE.forEach((k) => { const el = $(k); if (el && el.classList.contains('on')) add(el); });
     return out;
@@ -160,7 +166,7 @@
       if (br.width > 0) { const hit = document.elementFromPoint(br.left + br.width / 2, br.top + br.height / 2); covered = !!(hit && ABOVE.some((k) => { const el = hit.closest(k); return !!el && el.classList.contains('on'); })); }
     } catch (e) {}
     const m = { k: 'state', open: D.open, id: D.open ? D.id : null, tool: ui.tool, color: ui.color, finger: !!ui.finger, theme: theme(), view: { x: V.x, y: V.y, z: V.z }, rects: D.open ? aboveRects() : [],
-      btn: [br.left, br.top, br.width, br.height], covered, labels: { open: U('ui.draft.open'), close: U('ui.draft.close') } };
+      btn: [br.left - vvOff()[0], br.top - vvOff()[1], br.width, br.height], covered, labels: { open: U('ui.draft.open'), close: U('ui.draft.close') } };
     const js = JSON.stringify(m); if (js === lastSent && !force) return; lastSent = js; tell(m);
   }
   function flash(a) { const b = T(a); tool.querySelectorAll('.flash').forEach((x) => x.classList.remove('flash')); void b.offsetWidth; b.classList.add('flash'); clearTimeout(b._ft); b._ft = setTimeout(() => b.classList.remove('flash'), 700); }
@@ -183,12 +189,17 @@
   }
   function layout() {
     if (!tool.classList.contains('on') || tool.classList.contains('moving')) return;
-    const W = innerWidth, H = innerHeight, h = tool.offsetHeight, w = tool.offsetWidth, g = fbGoal();
+    const W = innerWidth, H = innerHeight, g = fbGoal();
     let top = 8, bot = H - 8, right = W;
     if (g) { if (g.x != null) right = g.x; else bot = Math.min(bot, g.y - 8); }
+    /* 放不下（竖屏问答面板开着、屏幕矮）：先收紧（间距、透明度竖条变短），还放不下就折成两列；按钮点击区不变（44） */
+    tool.classList.remove('dtight', 'dwrap'); tool.style.removeProperty('--dmax');
+    if (tool.offsetHeight > bot - top) tool.classList.add('dtight');
+    if (tool.offsetHeight > bot - top) { tool.classList.add('dwrap'); tool.style.setProperty('--dmax', Math.max(120, bot - top) + 'px'); }
+    const h = tool.offsetHeight, w = tool.offsetWidth;
     const x = ui.side === 'l' ? 10 : right - w - 10, y = Math.max(top, Math.min(bot - h, ui.y * H - h / 2));
     tool.style.setProperty('--dx', Math.round(x) + 'px'); tool.style.setProperty('--dy', Math.round(y) + 'px'); tool.dataset.side = ui.side;
-    setTimeout(sync, 400);   // 工具条滑到位以后（draft.css 的过渡）再报位置
+    sync(); setTimeout(sync, 400);   // 立刻报一次（目标位置），滑到位以后（draft.css 的过渡）再报一次
   }
   /* 全局按钮放进问答气泡那一组（.fbx）的最左边，和气泡一起排版、一起移动；被问答面板 / 原卷浮层盖住时自然被盖住（层的高低在 draft.css）。
      没有题的空页只留它（shell.css）；.fbx 不在（别的页面）才放在 body 右上角。 */
@@ -223,7 +234,7 @@
       const cx = (D.W / 2 - V.x) / V.z, cy = (D.H / 2 - V.y) / V.z;
       D.W = W; D.H = H; setView(W / 2 - cx * V.z, H / 2 - cy * V.z, V.z, true);
     } else { D.W = W; D.H = H; }
-    layout(); if (D.open) { size(); render(); }
+    layout(); if (D.open) { size(); render(); } sync();
   });
   function watchFb() {
     const fb = $('#fbp'); if (!fb) return;
@@ -240,7 +251,7 @@
     const k = keyNow(); if (k !== D.id || !D.doc) await load(k); render(); sync(true);
   }
   function close() {
-    endTouchAll(); flush(); D.open = false; D.cur = null; closePops();
+    endTouchAll(); flush(); D.open = false; D.cur = null; closePops(); D.clears = [];
     root.classList.remove('on'); tool.classList.remove('on'); btn.classList.remove('open'); labels(); sync(true);
   }
   btn.addEventListener('click', () => (D.open ? close() : open()));
@@ -279,6 +290,7 @@
   }
   async function load(id) {
     const tok = ++D.tok;
+    unsure(); D.clears = [];
     D.id = id; D.doc = blank(); D.hist = []; applyDocView(); paintUndo();
     if (NI()) sync(true);   // 原生笔迹：换题立刻告诉 App，之后写的字记到新题
     const local = stored(LKEY + id, null);
@@ -295,12 +307,18 @@
     D.doc = doc; D.hist = []; bbs = new WeakMap();
     D.dirty = !!(pick && ((pick === (local && local.doc) && D.server) || mig));   // 本机那份更新：待会儿补存到电脑上；旧格式迁移过来的：存成新格式
     D.migrated = mig ? { from: id, strokes: doc.s.length } : null;
+    if (NI() && pick && pick === (local && local.doc)) putV2();   // App 里：本机那份（清空后没写上电脑的）更新：补传
     applyDocView(); paintUndo(); if (D.dirty) later();
   }
+  /* App 里写回旧稿（只有清空 / 撤销清空时）：按先后排队一个一个写；写不上（离线、电脑没开）先存本机，下次打开这道题时本机那份更新就补传 */
+  let v2q = Promise.resolve();
   function putV2() {
     if (!D.doc || !D.id) return;
-    const doc = D.doc; doc.t = Date.now();
-    try { fetch('draft', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: D.id, doc }) }); } catch (e) {}
+    const id = D.id, doc = JSON.parse(JSON.stringify(D.doc)); doc.t = Date.now();
+    store(LKEY + id, { doc });   // 先存本机：电脑那头没写成也不会回来
+    v2q = v2q.then(() => fetch('draft', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, doc }) })
+      .then((r) => { if (r.ok) { const l = stored(LKEY + id, null); if (l && l.doc && l.doc.t === doc.t) try { localStorage.removeItem(LKEY + id); } catch (e) {} } })
+      .catch(() => {}));
   }
   function later(ms) { clearTimeout(D.saveT); D.saveT = setTimeout(flush, ms || 1200); }
   function keepLocal(id, doc) { if (!store(LKEY + id, { doc })) return; if (!D.warned && B() && B().api) { D.warned = true; B().api.toast(U('ui.draft.local')); } }
@@ -347,10 +365,10 @@
   }
   const want = () => { if (!raf) raf = requestAnimationFrame(frame); };
   /* 点缩放比例：回到 100%，并回到有笔迹的地方 */
-  function homeView() {
+  function homeView(nat) {
     const W = innerWidth, H = innerHeight, s = D.doc ? D.doc.s.filter((x) => !x.e) : [];
-    const boxes = s.map(bbox);
-    if (!boxes.length) return { x: 0, y: 0, z: 1 };
+    const boxes = s.map(bbox); if (nat && NV.bounds) boxes.push(NV.bounds);   // App 里：新笔迹整体算一块（也当"最后写的"）
+    if (!boxes.length) return nat ? null : { x: 0, y: 0, z: 1 };   // App 里一笔都没有：交给 App 以屏幕中心回到 100%
     let any = false, a = [Infinity, Infinity, -Infinity, -Infinity];
     boxes.forEach((b) => { if (b[2] > 0 && b[0] < W && b[3] > 0 && b[1] < H) any = true; a = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])]; });
     if (any) return { x: 0, y: 0, z: 1 };
@@ -589,13 +607,15 @@
 
   /* ---------- 工具条 ---------- */
   let sureT = 0;
-  const unsure = () => { clearTimeout(sureT); const c = T('clear'); if (c.classList.contains('sure')) { c.classList.remove('sure'); tool.querySelector('.dsure').classList.remove('on'); labels(); setTimeout(sync, 0); } };
-  function closePops() { tool.querySelectorAll('.dpop.on').forEach((p) => p.classList.remove('on')); unsure(); }
+  let sureAt = 0;
+  const unsure = () => { clearTimeout(sureT); const c = T('clear'); if (c.classList.contains('sure')) { c.classList.remove('sure'); tool.querySelector('.dsure').classList.remove('on'); labels(); sync(); } };
+  function closePops() { const had = tool.querySelector('.dpop.on'); tool.querySelectorAll('.dpop.on').forEach((p) => p.classList.remove('on')); unsure(); if (had) sync(); }
   function pop(name, anchorEl) {
     const p = tool.querySelector(`.dpop[data-p="${name}"]`), was = p.classList.contains('on');
     if (name !== 'sure') closePops(); if (was) return;
     p.style.top = Math.max(0, anchorEl.offsetTop + anchorEl.offsetHeight / 2 - 26) + 'px'; p.classList.add('on');
     const r = p.getBoundingClientRect(); if (r.bottom > innerHeight - 8) p.style.top = (parseFloat(p.style.top) - (r.bottom - innerHeight + 8)) + 'px';
+    sync();   // 弹层一开就告诉 App 让出这块，不等 400 毫秒的轮询（不然这段时间里点色块会点到纸上）
   }
   /* 按下和抬起在同一个按钮上就算点了一下，抬起时立刻生效。手指 / 笔点的：touchend 上 preventDefault，浏览器就不再补一个 click
      （补来的 click 会晚一两秒，那时小弹层可能已经收了，click 会落到下面的页面上；也会把开关再拨回去）。
@@ -609,24 +629,35 @@
     evs.push((n === 'touchstart' ? 'ts' : n === 'pointerdown' ? 'pd' : n === 'touchend' ? 'te' : n === 'pointerup' ? 'pu' : 'cl') + ':' + wallOf(e) + '/' + Date.now());
   }, { capture: true, passive: true }));
   const btnOf = (t) => (t && t.closest ? t.closest('[data-c], [data-a]') : null);
-  tool.addEventListener('pointerdown', (e) => { downEl = btnOf(e.target); downAt = Date.now(); upDone = false; }, true);
+  tool.addEventListener('pointerdown', (e) => { downEl = btnOf(e.target); downAt = Date.now(); upDone = 0; }, true);
   tool.addEventListener('pointerup', (e) => {
-    const el = btnOf(e.target);
+    const el = btnOf(e.target);   // 触摸有隐式捕获：手指滑出去以后 target 还是按下的那颗按钮，所以要看抬起点
     if (!el || el !== downEl || el.dataset.a === 'grip' || el.dataset.a === 'alpha') { downEl = null; return; }
-    downEl = null; upDone = true; act(e);
+    downEl = null;
+    const r = el.getBoundingClientRect(), m = 14;
+    if (e.clientX < r.left - m || e.clientX > r.right + m || e.clientY < r.top - m || e.clientY > r.bottom + m) return;   // 滑出按钮再松手：不算
+    if (e.pointerType === 'mouse') upDone = performance.now();   // 鼠标：紧跟着来的 click 不再算第二次（触摸的 click 在 touchend 上已经拦掉）
+    act(e);
   });
   /* 在工具条上按下的手指 / 笔（包括拖手柄、拖透明度）抬起时都不要浏览器补 click：拖手柄松手时手指往往已经在工具条外面，
      补来的 click 会落到下面的页面上（模拟器里实测打开了原卷浮层） */
   tool.addEventListener('touchend', (e) => { e.preventDefault(); }, { passive: false });
   /* 兜底：在工具条上按着、以及抬起后 1.5 秒内，落在工具条外面的 click 一律不算（模拟器里实测：拖手柄后浏览器仍在按下的那一点补了一个 click，
      工具条已经挪走了，click 落到下面的原卷图上把原卷浮层打开了） */
-  let toolTouch = false, toolUpAt = -1e9;
-  tool.addEventListener('pointerdown', () => { toolTouch = true; }, true);
+  /* 只拦"在工具条上按下的那一下"补出来的 click：落点在按下点 30px 以内、抬起后 600 毫秒内；工具条外面一有新的按下，立刻不拦 */
+  let toolTouch = false, toolUpAt = -1e9, toolDownXY = [0, 0];
+  tool.addEventListener('pointerdown', (e) => { toolTouch = true; toolDownXY = [e.clientX, e.clientY]; }, true);
   ['pointerup', 'pointercancel'].forEach((n) => addEventListener(n, () => { if (toolTouch) { toolTouch = false; toolUpAt = performance.now(); } }, true));
+  addEventListener('pointerdown', (e) => { if (!(e.target.closest && e.target.closest('#dtool'))) { toolTouch = false; toolUpAt = -1e9; } }, true);
   document.addEventListener('click', (e) => {
-    if ((toolTouch || performance.now() - toolUpAt < 1500) && !(e.target.closest && e.target.closest('#dtool'))) { e.preventDefault(); e.stopImmediatePropagation(); }
+    if (!(toolTouch || performance.now() - toolUpAt < 600)) return;
+    if (e.target.closest && e.target.closest('#dtool')) return;
+    if (Math.hypot(e.clientX - toolDownXY[0], e.clientY - toolDownXY[1]) > 30) return;
+    e.preventDefault(); e.stopImmediatePropagation();
   }, true);
-  tool.addEventListener('click', (e) => { if (upDone) { upDone = false; return; } act(e); });
+  /* 清空确认气泡：触摸落在它上面不传到下面的页面、也不清空 */
+  { const su = tool.querySelector('.dsure'); ['pointerdown', 'pointerup', 'click', 'touchstart'].forEach((n) => su.addEventListener(n, (e) => { e.stopPropagation(); if (n !== 'touchstart' && n !== 'pointerdown') e.preventDefault(); })); }
+  tool.addEventListener('click', (e) => { if (upDone && performance.now() - upDone < 600) { upDone = 0; return; } upDone = 0; act(e); });
   function act(e) {
     const c = e.target.closest('[data-c]'); if (c) { ui.color = c.dataset.c; ui.tool = 'pen'; saveUI(); paintTool(); closePops(); return; }
     const b = e.target.closest('[data-a]'); if (!b || b.disabled) return;
@@ -636,15 +667,21 @@
     if (a === 'pen' || a === 'eraser') { ui.tool = a; saveUI(); paintTool(); closePops(); }
     else if (a === 'color' || a === 'more') pop(a, b);
     else if (a === 'undo') { closePops(); undo(); }
-    else if (a === 'zoom') { closePops(); if (NI()) tell({ k: 'zoom100' }); else if (doc) flyTo(homeView()); }
+    else if (a === 'zoom') {
+      closePops();
+      if (NI()) { const v = homeView(true); if (v) tell({ k: 'zoomTo', x: v.x, y: v.y, z: v.z }); else tell({ k: 'zoom100' }); }   // App 里：取景窗由 App 定
+      else if (doc) flyTo(homeView());
+    }
     else if (a === 'clear') {
       if (!b.classList.contains('sure')) {   // 清空：第一次只变成确认态（红框 + 旁边一句），4 秒内再点才清
-        closePops(); b.classList.add('sure'); labels(); pop('sure', b); clearTimeout(sureT); sureT = setTimeout(unsure, 4000); setTimeout(sync, 0); return;
+        closePops(); b.classList.add('sure'); sureAt = performance.now(); labels(); pop('sure', b); clearTimeout(sureT); sureT = setTimeout(unsure, 4000); return;
       }
+      if (performance.now() - sureAt < 300) return;   // 刚进确认态 300 毫秒内的第二下（比如连点撤销点偏了）不算
       unsure(); closePops();
-      if (NI()) {   // App 里：App 清它的新笔迹（能撤销）；这里清垫底的旧笔迹，写回电脑，留一份给撤销
+      if (NI()) {   // App 里：App 清它的新笔迹（登记一步撤销）；这里清垫底的旧笔迹并写回电脑。每次清空都记一份（没有旧稿就记空的），和 App 的撤销一一对应
         tell({ k: 'clear' });
-        if (doc && doc.s.length) { D.cleared = { id: D.id, s: doc.s }; doc.s = []; putV2(); render(); }
+        D.clears.push({ id: D.id, s: doc ? doc.s : [] });
+        if (doc && doc.s.length) { doc.s = []; putV2(); render(); }
       } else if (doc && doc.s.length) { D.hist.push({ k: 'clear', s: doc.s }); doc.s = []; D.dirty = true; later(); render(); }
     }
     else if (a === 'finger') { ui.finger = !ui.finger; saveUI(); paintTool(); }
@@ -692,10 +729,11 @@
   Kit.draft = { D, ui, V, open, close, flush, render, fix, homeView, setView, get doc() { return D.doc; }, get gesture() { return G; },
     /* App 调：at 是 App 画布现在的取景窗 {x, y, z}（屏幕 = 纸面 × z + (x, y)），旧 v2 笔迹跟着它画 */
     native: NI() ? {
-      update(o) { NV.undo = !!(o && o.undo); paintUndo(); },
+      update(o) { NV.undo = !!(o && o.undo); NV.bounds = o && Array.isArray(o.bounds) ? o.bounds : null; paintUndo(); },
+      /* App 撤销了一次清空：放回那一次清掉的旧稿（最后一次清空对应最后一次撤销） */
       unclear() {
-        const c = D.cleared; if (!c || c.id !== D.id || !D.doc) return;
-        D.doc.s = c.s.concat(D.doc.s); D.cleared = null; putV2(); render();
+        const c = D.clears.pop(); if (!c || c.id !== D.id || !D.doc || !c.s.length) return;
+        D.doc.s = c.s.concat(D.doc.s); putV2(); render();
       },
       at(v) {
         if (!v || !isFinite(+v.x) || !isFinite(+v.y) || !(+v.z > 0)) return;

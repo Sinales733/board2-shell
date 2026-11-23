@@ -219,6 +219,13 @@ final class InkLayer: NSObject {
         case "clear":
             clearAll()
             return
+        case "zoomTo":
+            // 网页算好的"回到 100%、回到有笔迹的地方"
+            if let x = body["x"] as? Double, let y = body["y"] as? Double, let z = body["z"] as? Double, x.isFinite, y.isFinite, z > 0 {
+                viewSettled = true; setView(x: CGFloat(x), y: CGFloat(y), z: CGFloat(z)); viewMoved()
+                InkDiag.shared.log("zoomTo applied \(Int(x)),\(Int(y)),\(z)")
+            }
+            return
         case "zoom100":
             let v = view, W = canvas.bounds.width, H = canvas.bounds.height
             if v.z > 0 { let cx = (W / 2 - v.x) / v.z, cy = (H / 2 - v.y) / v.z; viewSettled = true; setView(x: W / 2 - cx, y: H / 2 - cy, z: 1); viewMoved() }
@@ -290,6 +297,9 @@ final class InkLayer: NSObject {
     }
 
     private func closeUI() {
+        // 收起：撤销记录清掉（网页那边每次清空记的旧稿也清掉了，两边一一对应）
+        canvas.undoManager?.removeAllActions()
+        tellUndo()
         let rc = canvas.isFirstResponder ? canvas.resignFirstResponder() : true
         canvas.isHidden = true
         // 第一响应者交回网页（不然收起后点网页的第一下会先被拿去换第一响应者）
@@ -320,9 +330,16 @@ final class InkLayer: NSObject {
     }
 
     /// 告诉网页：撤销能不能点（工具条的撤销按钮跟着亮 / 灰）。
+    /// 告诉网页：撤销能不能点、新笔迹在纸面上的范围（缩放比例按钮"回到有笔迹的地方"用）。
     private func tellUndo() {
         let can = canvas.undoManager?.canUndo ?? false
-        webView?.evaluateJavaScript("window.Kit && Kit.draft && Kit.draft.native && Kit.draft.native.update && Kit.draft.native.update({ undo: \(can) })", completionHandler: nil)
+        let b = canvas.drawing.bounds
+        var bounds = "null"
+        if !b.isNull && !b.isEmpty && b.minX.isFinite && b.maxX.isFinite {
+            let o = InkLayer.origin
+            bounds = "[\(b.minX - o),\(b.minY - o),\(b.maxX - o),\(b.maxY - o)]"
+        }
+        webView?.evaluateJavaScript("window.Kit && Kit.draft && Kit.draft.native && Kit.draft.native.update && Kit.draft.native.update({ undo: \(can), bounds: \(bounds) })", completionHandler: nil)
     }
 
     /// 清空（工具条第一层的清空，网页已经做过两次确认）：这道题的新笔迹清掉，登记撤销；撤销时新笔迹回来，网页垫底的旧笔迹也放回去。
