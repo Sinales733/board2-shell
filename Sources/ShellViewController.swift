@@ -330,14 +330,9 @@ final class ShellViewController: UIViewController {
         config.userContentController.addUserScript(WKUserScript(source: ShellViewController.logJS,
                                                                 injectionTime: .atDocumentStart,
                                                                 forMainFrameOnly: true))
-        // 诊断变体：x = 网页拿不到 AudioContext（音效解锁什么都不做）；y = 页面一开就先建好 AudioContext（第一下点按只需 resume）
-        if ShotVariant.on("x") {
-            config.userContentController.addUserScript(WKUserScript(source: "window.AudioContext = undefined; window.webkitAudioContext = undefined;",
-                                                                    injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        }
-        if ShotVariant.on("y") {
-            config.userContentController.addUserScript(WKUserScript(source: ShellViewController.audioWarmJS, injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        }
+        // 网页的音效第一次被用到时（第一下点按）才建 AudioContext，会把网页主线程卡住几百毫秒到两秒多，
+        // 那一下点工具条就要等这么久（1.8 复审时量出来的根因）。App 里改成页面一开就先建好，第一下点按只需 resume。
+        config.userContentController.addUserScript(WKUserScript(source: ShellViewController.audioWarmJS, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         config.userContentController.addUserScript(WKUserScript(source: InkLayer.flagScript,
                                                                 injectionTime: .atDocumentStart,
                                                                 forMainFrameOnly: true))
@@ -866,9 +861,7 @@ extension ShellViewController {
             case "draft":
                 // 透明度：-b2alpha 0.5（网页草稿纸的 ui.alpha；改了以后让它按昼夜变化那条路重画一次工具条）
                 let a = UserDefaults.standard.double(forKey: "b2alpha")
-                // -b2sure YES：再点一下工具条上的清空，拍清空的确认态
-                let sure = UserDefaults.standard.bool(forKey: "b2sure") ? "var c=document.querySelector('#dtool [data-a=\"clear\"]');c&&c.click();" : ""
-                let js = "Kit.draft && Kit.draft.open().then(function(){" + (a > 0 ? "Kit.draft.ui.alpha=\(a);var h=document.documentElement;h.setAttribute('data-theme',h.dataset.theme);" : "") + "setTimeout(function(){" + sure + "},700);})"
+                let js = "Kit.draft && Kit.draft.open().then(function(){" + (a > 0 ? "Kit.draft.ui.alpha=\(a);var h=document.documentElement;h.setAttribute('data-theme',h.dataset.theme);" : "") + "})"
                 self.webView.evaluateJavaScript(js, completionHandler: nil)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { self.ink?.drawSample() }
                 delay = 2.2
@@ -911,15 +904,15 @@ extension ShellViewController {
     fileprivate func inkProbe() {
         let js = """
         (function(){var r=function(el){if(!el)return null;var b=el.getBoundingClientRect();return [b.left,b.top,b.width,b.height];};
-        if(window.__b2clicks===undefined){window.__b2clicks=0;document.addEventListener('pointerdown',function(){window.__b2clicks++;},true);}if(!window.__b2lc){window.__b2lc=[];document.addEventListener('click',function(e){var t=e.target,n=(t.id||t.className||t.tagName)+'';window.__b2lc.push(Math.round(performance.now())+':'+n.slice(0,30)+'@'+Math.round(e.clientX)+','+Math.round(e.clientY)+(e.isTrusted?'':'(synthetic)'));if(window.__b2lc.length>8)window.__b2lc.shift();},true);}
+        if(window.__b2clicks===undefined){window.__b2clicks=0;window.__b2clk=0;document.addEventListener('pointerdown',function(){window.__b2clicks++;},true);document.addEventListener('click',function(e){if(e.isTrusted&&!(e.target.closest&&e.target.closest('#dtool')))window.__b2clk++;},false);}if(!window.__b2lc){window.__b2lc=[];document.addEventListener('click',function(e){var t=e.target,n=(t.id||t.className||t.tagName)+'';window.__b2lc.push(Math.round(performance.now())+':'+n.slice(0,30)+'@'+Math.round(e.clientX)+','+Math.round(e.clientY)+(e.isTrusted?'':'(synthetic)'));if(window.__b2lc.length>8)window.__b2lc.shift();},true);}
         var d=window.Kit&&Kit.draft,o=document.querySelector('.opt'),t=document.getElementById('dtool'),q=function(a){return t&&t.querySelector(a);};
         var cl=q('[data-a="clear"]'),su=q('.dsure');
         return JSON.stringify({id:d&&d.D.id,open:d&&d.D.open,tool:d&&d.ui.tool,color:d&&d.ui.color,finger:d&&!!d.ui.finger,side:d&&d.ui.side,
         V:d&&[d.V.x,d.V.y,d.V.z],W:innerWidth,H:innerHeight,q:window.Board2&&Board2.id,opt:r(o),clicks:window.__b2clicks,
-        v2:d&&d.doc?d.doc.s.length:-1,lastClicks:window.__b2lc,perf:window.__b2perf?{gaps:__b2perf.gaps,slow:__b2perf.slow}:null,aboveOn:['#fbp','#drawer','#sheet','#weak','#akPg','#akHere','.toast'].filter(function(k){var e=document.querySelector(k);return e&&e.classList.contains('on');}),stem:r(document.getElementById('stem')),dtoolShown:!!(t&&t.offsetWidth),dtool:r(t),draftBtn:r(document.getElementById('draftBtn')),
+        v2:d&&d.doc?d.doc.s.length:-1,clk:window.__b2clk,tag:r(document.getElementById('tag')),cells:{a:r(document.querySelector('#nv .pane:not(.out) .cell[data-id="2009-01"]')),b:r(document.querySelector('#nv .pane:not(.out) .cell[data-id="2009-02"]'))},drawer:!!(document.getElementById('drawer')&&document.getElementById('drawer').classList.contains('on')),lastClicks:window.__b2lc,perf:window.__b2perf?{gaps:__b2perf.gaps,slow:__b2perf.slow}:null,aboveOn:['#fbp','#drawer','#sheet','#weak','#akPg','#akHere','.toast'].filter(function(k){var e=document.querySelector(k);return e&&e.classList.contains('on');}),stem:r(document.getElementById('stem')),dtoolShown:!!(t&&t.offsetWidth),dtool:r(t),draftBtn:r(document.getElementById('draftBtn')),
         clearSure:!!(cl&&cl.classList.contains('sure')),sureShown:!!(su&&su.classList.contains('on')),undoDisabled:!!(q('[data-a="undo"]')||{}).disabled,
         btn:{grip:r(q('[data-a="grip"]')),pen:r(q('[data-a="pen"]')),eraser:r(q('[data-a="eraser"]')),color:r(q('[data-a="color"]')),undo:r(q('[data-a="undo"]')),
-        clear:r(cl),more:r(q('[data-a="more"]')),close:r(q('[data-a="close"]')),red:r(q('.dpal [data-c="red"]')),finger:r(q('[data-a="finger"]'))},
+        clear:r(cl),sure:r(su),zoom:r(q('[data-a="zoom"]')),more:r(q('[data-a="more"]')),close:r(q('[data-a="close"]')),red:r(q('.dpal [data-c="red"]')),finger:r(q('[data-a="finger"]'))},
         pal:!!(q('.dpal')&&q('.dpal').classList.contains('on')),moreOpen:!!(q('.dmore')&&q('.dmore').classList.contains('on'))});})()
         """
         webView.evaluateJavaScript(js) { [weak self] res, _ in
@@ -938,7 +931,7 @@ extension ShellViewController {
                     self.inkCommand(c.trimmingCharacters(in: .whitespacesAndNewlines))
                 }
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + (ShotVariant.on("p") ? 2.0 : 0.25)) { self.inkProbe() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { self.inkProbe() }
         }
     }
 
@@ -957,6 +950,13 @@ extension ShellViewController {
             webView.evaluateJavaScript("Kit.draft.close()", completionHandler: nil)
         case "reset":
             ink?.testReset()
+        case "resetall":
+            // 每一轮从干净状态开始：App 的新笔迹全删、取景窗回原点；网页工具条回默认（墨、笔、贴右、手指书写关），本机暂存的旧稿删掉
+            ink?.testWipeAll()
+            webView.evaluateJavaScript("try{Object.keys(localStorage).filter(function(k){return k.indexOf('b2draft:')===0;}).forEach(function(k){localStorage.removeItem(k);});var u=Kit.draft.ui;u.color='ink';u.tool='pen';u.finger=false;u.side='r';u.y=0.5;localStorage.setItem('b2draftUI',JSON.stringify(u));}catch(e){};0", completionHandler: nil)
+        case "pencil2":
+            // 模拟器造不出 Pencil 双击：直接调 App 收到双击时的那个处理函数（不等于真机验证）
+            firePencilToggle()
         case "closeall":
             webView.evaluateJavaScript("try{Board2.api.closeAll()}catch(e){};0", completionHandler: nil)
         case "finger":

@@ -110,8 +110,8 @@ final class InkLayer: NSObject {
             canvas.trailingAnchor.constraint(equalTo: host.trailingAnchor)
         ])
         maskLayer.fillRule = .nonZero
-        if !ShotVariant.on("d") { canvas.layer.mask = maskLayer }
-        if !ShotVariant.on("e") { canvas.drawingGestureRecognizer.addTarget(self, action: #selector(drawingGesture(_:))) }
+        canvas.layer.mask = maskLayer
+        canvas.drawingGestureRecognizer.addTarget(self, action: #selector(drawingGesture(_:)))
 
         toggle.isHidden = true
         toggle.addTarget(self, action: #selector(togglePressed), for: .touchUpInside)
@@ -429,7 +429,7 @@ final class InkLayer: NSObject {
         if gr.state == .ended || gr.state == .cancelled || gr.state == .failed { canvas.penDown = false }
         if gr.state == .ended { lastTouchEnd = p; pendingStroke = true; pendingSince = ProcessInfo.processInfo.systemUptime }
         // 写完一笔：画布要是拿了第一响应者，交回网页（不然下一下点工具条，网页要先抢回第一响应者，点击会晚到）
-        if gr.state == .ended || gr.state == .cancelled, canvas.isFirstResponder, !ShotVariant.on("a") {
+        if gr.state == .ended || gr.state == .cancelled, canvas.isFirstResponder {
             let w = webView?.becomeFirstResponder() ?? false
             InkDiag.shared.log("first responder back to web=\(w)")
         }
@@ -579,6 +579,16 @@ final class InkLayer: NSObject {
     // MARK: - 截图模式用
 
     /// testInk 用：只认笔 / 手指也写（模拟器没有笔，系统默认就是手指也写）。
+    /// testInk 用：所有题的新笔迹全删（本机文件也删）、取景窗回原点、撤销记录清空。
+    func testWipeAll() {
+        store.wipeAll()
+        setDrawing(PKDrawing(), "test-wipe")
+        dirtyDrawing = false; dirtyView = false; saveWork?.cancel(); saveWork = nil
+        viewSettled = true; setView(x: 0, y: 0, z: 1)
+        canvas.undoManager?.removeAllActions()
+        tellUndo()
+    }
+
     /// testInk 用：这道题的新笔迹清零（不登记撤销），每个方向从干净的纸开始。
     func testReset() {
         setDrawing(PKDrawing(), "test-reset")
@@ -623,10 +633,13 @@ final class InkLayer: NSObject {
         let tf = toggle.frame
         return ["count": canvas.drawing.strokes.count, "strokes": strokes, "prints": prints, "open": isOpen, "id": id ?? NSNull(),
                 "view": [Double(v.x), Double(v.y), Double(v.z)], "tool": InkLayer.toolName(canvas.tool),
-                "color": colorName, "canUndo": canvas.undoManager?.canUndo ?? false, "lastTap": lastTap, "mainGaps": MainBeat.gaps, "mainSlow": MainBeat.slow, "variant": Array(ShotVariant.set), "lastColor": lastStrokeColor(),
+                "color": colorName, "canUndo": canvas.undoManager?.canUndo ?? false, "lastTap": lastTap, "mainGaps": MainBeat.gaps, "mainSlow": MainBeat.slow, "lastColor": lastStrokeColor(),
                 "webBtn": [Double(webBtn.minX), Double(webBtn.minY), Double(webBtn.width), Double(webBtn.height)], "covered": webBtnCovered,
                 "passRects": canvas.passRects.map { [Double($0.minX), Double($0.minY), Double($0.width), Double($0.height)] },
                 "screen": [Double(host?.bounds.width ?? 0), Double(host?.bounds.height ?? 0)],
+                "window": [Double(host?.window?.bounds.width ?? 0), Double(host?.window?.bounds.height ?? 0)],
+                "uiscreen": [Double(host?.window?.screen.bounds.width ?? 0), Double(host?.window?.screen.bounds.height ?? 0)],
+                "webFrame": webView.map { [Double($0.frame.minX), Double($0.frame.minY), Double($0.frame.width), Double($0.frame.height)] } ?? [],
                 "toggle": [Double(tf.minX), Double(tf.minY), Double(tf.width), Double(tf.height)], "toggleHidden": toggle.isHidden,
                 "policy": canvas.drawingPolicy == .anyInput ? "anyInput" : (canvas.drawingPolicy == .pencilOnly ? "pencilOnly" : "default"), "lastTouchEnd": [Double(lastTouchEnd.x), Double(lastTouchEnd.y)], "log": InkDiag.shared.tail(30)]
     }
@@ -712,7 +725,7 @@ extension InkLayer: PKCanvasViewDelegate {
         pendingStroke = false
         InkDiag.shared.log("strokes \(lastCount)->\(n) tool=\(InkLayer.toolName(canvasView.tool))" + gap)
         lastCount = n
-        if !ShotVariant.on("c") { tellUndo() }
+        tellUndo()
         guard id != nil else { return }
         changed()
     }
@@ -771,7 +784,6 @@ final class InkCanvas: PKCanvasView {
     var passRects: [CGRect] = []
     /// 笔正按在纸上写（画画手势开始到结束）：这段时间里落在让出区（工具条等）的手指不给网页，当掌根；笔一抬立刻恢复
     var penDown = false
-    override var canBecomeFirstResponder: Bool { ShotVariant.on("b") ? false : super.canBecomeFirstResponder }
     private var lastLogged: TimeInterval = -1
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         guard super.point(inside: point, with: event) else { return false }
@@ -878,6 +890,13 @@ final class InkStore {
 
     private func drawingURL(_ k: String) -> URL { dir.appendingPathComponent(k + ".drawing") }
     private func metaURL(_ k: String) -> URL { dir.appendingPathComponent(k + ".json") }
+
+    /// 测试用：本机存的新笔迹全删
+    func wipeAll() {
+        q.sync {
+            for f in (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [] { try? fm.removeItem(at: f) }
+        }
+    }
 
     /// 等存盘队列里的活都做完（App 要被杀掉时用）
     func waitIdle() { q.sync {} }

@@ -49,12 +49,6 @@ extension UIApplication {
     }
 }
 
-/// 云端测试用的变体开关（-b2var a,b,…；平时为空，什么都不变）。用来并排比"写完字后第一下点工具条慢"的几种可能原因。
-enum ShotVariant {
-    static let set: Set<String> = Set((UserDefaults.standard.string(forKey: "b2var") ?? "").split(separator: ",").map(String.init))
-    static func on(_ k: String) -> Bool { set.contains(k) }
-}
-
 /// 诊断：App 主线程有没有被卡住——每 50 毫秒打一次拍，两拍之间超过 250 毫秒就记"从几点起卡了多久、卡之前最后在做什么"。
 /// 另外几处可能慢的活（整张换画布、遮罩、状态消息、状态探针写文件）超过 30 毫秒记一笔。草稿纸开着或截图模式下才记。
 enum MainBeat {

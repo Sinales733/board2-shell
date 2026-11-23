@@ -32,20 +32,12 @@ COMMON=(-project Board2Shell.xcodeproj -scheme Board2Shell -configuration Releas
 xcodebuild build-for-testing "${COMMON[@]}" > "$OUT/xcbuild.log" 2>&1
 echo "build-for-testing exit: $?"
 
-# 诊断轮：只量"写完字后第一下点工具条"的延迟（几种变体并排），不跑别的
-if [ -f ci/ONLY_LATENCY ]; then
-  xcodebuild test-without-building "${COMMON[@]}" -only-testing:Board2ShotsUITests/ShotsUITests/testToolLatency > "$OUT/xctest-latency.log" 2>&1
-  kill "$STUB" 2>/dev/null
-  grep -E "^LATENCY |error:|Test Case" "$OUT/xctest-latency.log" | head -n 60
-  cp -R "$HOME/b2shots/." "$OUT/" 2>/dev/null
-  exit 0
-fi
-
 # 动效录像：跑 testMotion 的同时录屏（启动淡入、设置面板开关、离线标记收展）
 xcrun simctl io "$UDID" recordVideo --codec=h264 --force "$OUT/motion.mp4" > "$OUT/record.log" 2>&1 &
 REC=$!
 sleep 2
 xcodebuild test-without-building "${COMMON[@]}" -only-testing:Board2ShotsUITests/ShotsUITests/testMotion > "$OUT/xctest-motion.log" 2>&1
+RC_MOTION=$?
 kill -INT "$REC" 2>/dev/null; wait "$REC" 2>/dev/null
 # 按段切出几张连拍（有 ffmpeg 才切；没有就只留整段录像）
 if command -v ffmpeg > /dev/null; then
@@ -55,6 +47,7 @@ fi
 
 # 真实触摸写字（草稿纸）：手指拖动写字、橡皮、撤销、收起再开、换题、双指缩放
 xcodebuild test-without-building "${COMMON[@]}" -only-testing:Board2ShotsUITests/ShotsUITests/testInk > "$OUT/xctest-ink.log" 2>&1
+RC_INK=$?
 xcodebuild test-without-building "${COMMON[@]}" -only-testing:Board2ShotsUITests/ShotsUITests/testShots -resultBundlePath "$OUT/result.xcresult" > "$OUT/xctest.log" 2>&1
 RC=$?
 set +e
@@ -71,9 +64,9 @@ echo "===== selftest-offline ====="; cat "$OUT/selftest-offline.json" 2>/dev/nul
 echo "===== posts after replay ====="; cat "$OUT/stub-posts-after-replay.json" 2>/dev/null; echo
 echo "===== app log (JS errors) ====="; grep "Board2Shell JS" "$OUT/app.log" | head -n 40
 ls -la "$OUT"
-echo "xcodebuild test exit code: $RC"
+echo "xcodebuild test exit codes: shots=$RC ink=$RC_INK motion=$RC_MOTION"
 # 自检有一条不对、或者有截图没等到就绪：让 CI 变红（截图仍然照常上传）
 python3 ci/check_selftest.py "$OUT"
 CHECK=$?
-if [ $RC -ne 0 ] || [ $CHECK -ne 0 ]; then exit 1; fi
+if [ $RC -ne 0 ] || [ $RC_INK -ne 0 ] || [ $RC_MOTION -ne 0 ] || [ $CHECK -ne 0 ]; then exit 1; fi
 exit 0

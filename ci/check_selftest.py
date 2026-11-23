@@ -84,10 +84,19 @@ for t in ("night", "day"):
         check("1234" in (v.get("sum") or "") and "888" in (v.get("sum") or ""), f"抽屉 {o}-{t}：没用大数字测 {v.get('sum')}")
 
 ink = load("inktest.json")
-steps = ink.get("steps") or []
-check(len(steps) >= 80, f"真实触摸写字：步骤不全（{len(steps)} 步）")
-for st in steps:
-    check(st.get("ok") is True, f"真实触摸写字 {st.get('name')}：{st.get('note')}")
+steps = {st.get("name"): st for st in (ink.get("steps") or [])}
+names = [n.strip() for n in open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "ink_steps.txt"), encoding="utf-8") if n.strip()]
+for o in ("portrait", "landscape"):
+    for n in names:
+        if o == "landscape" and n.startswith("eraser: pixels"):   # 逐像素比画面只在竖屏做
+            continue
+        st = steps.get(f"{o}: {n}")
+        if st is None:
+            bad.append(f"真实触摸写字 {o}: 少了一步「{n}」")
+        elif st.get("ok") is not True:
+            bad.append(f"真实触摸写字 {o}: {n}：{st.get('note')}")
+extra = [k for k in steps if k.split(": ", 1)[-1] not in names]
+check(not extra, f"真实触摸写字：名单外的步骤 {extra}")
 
 print("===== 自检结果 =====")
 if bad:

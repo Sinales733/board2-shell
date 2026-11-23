@@ -1,0 +1,66 @@
+app runs full screen
+closed, native button over web button
+open by tapping draft button (one tap)
+v2 old draft present
+stroke 1
+stroke 2
+stroke 3
+stroke 4
+stroke 5
+toolbar eraser
+eraser cuts strokes 2-4, strokes 1 and 5 unchanged
+eraser: pixels outside 30pt of the eraser path identical
+toolbar undo restores erase
+toolbar pen
+color blue right after opening palette
+color red right after opening palette
+red stroke
+new stroke is red
+toolbar undo removes last stroke
+pencilOnly by default
+finger tap on toolbar under pencilOnly
+finger tap pen under pencilOnly
+finger tap on paper: no stroke, toolbar still there
+one finger pans paper
+pinch zoom: no stroke
+old draft follows canvas after pan and zoom
+zoom button back to 100% where the strokes are
+more opens
+finger switch on -> anyInput
+finger switch off -> pencilOnly
+more closes
+drag grip moves toolbar, no stroke, nothing opened below
+clear first tap: confirm state only
+tap on confirm bubble: nothing cleared, page not clicked
+clear confirm times out
+press clear, slide out, release: nothing happens
+clear tap 1
+clear tap 2: native and old draft both 0
+stroke after clear
+second clear tap 1
+second clear tap 2
+undo #1: back to the stroke written after first clear
+undo #2: that stroke undone
+undo #3: first clear undone, old draft back
+clear before kill tap 1
+clear before kill tap 2
+clear then kill + relaunch: stays cleared
+old draft restored on server for offline test
+offline clear tap 1
+offline clear tap 2
+offline: switch away and back by real taps, old draft stays cleared
+online again: cleared old draft uploaded
+stroke before quick close
+close then tap page option within 200ms: option gets the click
+reopen: strokes kept
+stroke then close immediately
+stroke then close immediately: stroke kept after reopen
+stroke on 2009-02
+switch back by real taps: same strokes point by point
+other question kept its strokes point by point
+stroke before restart
+undo before restart
+after undo + kill + relaunch: same strokes
+rotate while open: strokes kept, button and toolbar on screen
+stroke after rotate
+pencil double tap handler: switches once, toolbar follows, logged
