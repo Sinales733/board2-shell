@@ -985,9 +985,13 @@ final class InkStore {
                         let o = InkLayer.origin
                         var strokes: [PKStroke] = []
                         for i in 0..<3 {
-                            let pts = (0..<6).map { j in
-                                PKStrokePoint(location: CGPoint(x: o + 100 + Double(j) * 40, y: o + 120 + Double(i) * 60 + Double(j) * 3),
-                                              timeOffset: Double(j) * 0.02, size: CGSize(width: 2.4, height: 2.4), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+                            var pts: [PKStrokePoint] = []
+                            for j in 0..<6 {
+                                let x: CGFloat = o + 100 + CGFloat(j) * 40
+                                let y: CGFloat = o + 120 + CGFloat(i) * 60 + CGFloat(j) * 3
+                                let t: TimeInterval = Double(j) * 0.02
+                                pts.append(PKStrokePoint(location: CGPoint(x: x, y: y), timeOffset: t, size: CGSize(width: 2.4, height: 2.4),
+                                                         opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2))
                             }
                             strokes.append(PKStroke(ink: PKInk(.pen, color: .black), path: PKStrokePath(controlPoints: pts, creationDate: Date(timeIntervalSince1970: 1_790_000_000 + Double(i)))))
                         }
