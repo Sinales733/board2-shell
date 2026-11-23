@@ -180,14 +180,22 @@ final class ShotsUITests: XCTestCase {
             guard let ss = native()["strokes"] as? [[Double]], let s = ss.last, s.count == 4 else { return (9999, 9999) }
             return (hypot(s[0] - a.0, s[1] - a.1), hypot(s[2] - b.0, s[3] - b.1))
         }
+        /// 这个点现在有没有被网页的某一层（面板、提示条……）盖着、让给了网页
+        func passed(_ x: Double, _ y: Double) -> Bool {
+            let rs = native()["passRects"] as? [[Double]] ?? []
+            return rs.contains { $0.count == 4 && x >= $0[0] && x <= $0[0] + $0[2] && y >= $0[1] && y <= $0[1] + $0[3] }
+        }
         func write(_ label: String, _ a: (Double, Double), _ b: (Double, Double)) {
+            // 网页偶尔会短暂弹出一层（提示条之类）盖住纸：等它收掉再写（最多 5 秒），并记下当时开着的是哪层
+            var waited = "", t0 = Date()
+            while passed(a.0, a.1) && Date().timeIntervalSince(t0) < 5 { waited = " (waited for layer \(web()["aboveOn"] ?? "?"))"; Thread.sleep(forTimeInterval: 0.3) }
             let before = count()
             drag(a, b)
             let after = waitCount(before + 1)
             let (es, ee) = strokeErr(a, b)
             step(label, after == before + 1 && es < 6 && ee < 6 && toolbarOK(),
                  "count \(before)->\(after) start err \(String(format: "%.1f", es)) end err \(String(format: "%.1f", ee)) toolbar=\(toolbarOK())"
-                 + (after == before + 1 ? "" : " passRects=\(native()["passRects"] ?? "nil") policy=\(native()["policy"] ?? "nil")"))
+                 + waited + (after == before + 1 ? "" : " passRects=\(native()["passRects"] ?? "nil") aboveOn=\(web()["aboveOn"] ?? "nil") policy=\(native()["policy"] ?? "nil")"))
         }
         func viewsMatch() -> (Bool, String) {
             let n = nview(), w = web()["V"] as? [Double] ?? []
@@ -276,7 +284,7 @@ final class ShotsUITests: XCTestCase {
         let (vm, vnote) = viewsMatch()
         step("old draft follows canvas", vm, vnote)
         let zz0 = nview().last ?? 1
-        app.pinch(withScale: 0.6, velocity: -1.0)   // 捏合（两指从远处往中间收）：起点两指隔得开，滚动视图稳定认成缩放
+        base.pinch(withScale: 0.6, velocity: -1.0)   // 捏合（两指从远处往中间收）：起点两指隔得开，滚动视图稳定认成缩放
         Thread.sleep(forTimeInterval: 1.5)
         let zz1 = nview().last ?? 1
         step("pinch zoom: no stroke, toolbar still there", count() == kept && abs(zz1 - zz0) > 0.15 && toolbarOK(), "count \(kept)->\(count()) z \(zz0)->\(zz1)")
@@ -342,7 +350,10 @@ final class ShotsUITests: XCTestCase {
         step("closed: first tap on page works", p2 > p1, "page pointerdowns \(p1)->\(p2)")
         // 点到的那一下如果让网页弹出了面板、盖住了草稿纸按钮，App 的按钮会跟着藏（设计如此）：换一下题把面板收掉再点按钮
         var covered = ""
-        if (native()["toggleHidden"] as? Bool) == true { covered = " (page tap covered the button; reset by goto)"; cmd("goto 2009-01"); Thread.sleep(forTimeInterval: 1.5) }
+        if (native()["toggleHidden"] as? Bool) == true {
+            covered = " (page tap opened \(web()["aboveOn"] ?? "?") over the button; closed it)"
+            cmd("closeall"); Thread.sleep(forTimeInterval: 1.5)
+        }
         let t3 = tapToggle()
         let diag = " toggleHidden=\(native()["toggleHidden"] ?? "nil") webBtn=\(native()["webBtn"] ?? "nil") covered=\(native()["covered"] ?? "nil")"
         step("reopen by button (one tap), strokes kept", t3 && (web()["open"] as? Bool) == true && waitCount(n0) == n0 && prints() == keptPrints && toolbarOK(), "count ->\(count())" + covered + diag)

@@ -155,7 +155,10 @@
     if (!NI()) return;
     const br = btn.getBoundingClientRect();
     /* 网页的草稿纸按钮在 App 里只占位；它所在的地方被抽屉、问答面板这些层盖住时告诉 App，App 的按钮也跟着藏（和网页按钮被盖住一样） */
-    let covered = false; try { covered = ABOVE.some((k) => { const el = $(k); if (!el || !el.classList.contains('on')) return false; const r = el.getBoundingClientRect(); return br.width > 0 && r.left < br.right && br.left < r.right && r.top < br.bottom && br.top < r.bottom; }); } catch (e) {}
+    let covered = false;
+    try {   // 按钮本身 visibility:hidden，取它中心点下面看得见的那个元素：属于这几层之一就是被盖住了
+      if (br.width > 0) { const hit = document.elementFromPoint(br.left + br.width / 2, br.top + br.height / 2); covered = !!(hit && ABOVE.some((k) => { const el = hit.closest(k); return !!el && el.classList.contains('on'); })); }
+    } catch (e) {}
     const m = { k: 'state', open: D.open, id: D.open ? D.id : null, tool: ui.tool, color: ui.color, finger: !!ui.finger, theme: theme(), view: { x: V.x, y: V.y, z: V.z }, rects: D.open ? aboveRects() : [],
       btn: [br.left, br.top, br.width, br.height], covered, labels: { open: U('ui.draft.open'), close: U('ui.draft.close') } };
     const js = JSON.stringify(m); if (js === lastSent && !force) return; lastSent = js; tell(m);
