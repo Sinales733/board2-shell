@@ -604,6 +604,11 @@
   /* 在工具条上按下的手指 / 笔（包括拖手柄、拖透明度）抬起时都不要浏览器补 click：拖手柄松手时手指往往已经在工具条外面，
      补来的 click 会落到下面的页面上（模拟器里实测打开了原卷浮层） */
   tool.addEventListener('touchend', (e) => { e.preventDefault(); }, { passive: false });
+  /* 兜底：在工具条上按下以后 1.5 秒内，落在工具条外面的 click 一律不算（模拟器里实测：拖手柄后浏览器仍在按下的那一点补了一个 click，
+     工具条已经挪走了，click 落到下面的原卷图上把原卷浮层打开了） */
+  let toolDownAt = -1e9;
+  tool.addEventListener('pointerdown', () => { toolDownAt = performance.now(); }, true);
+  document.addEventListener('click', (e) => { if (performance.now() - toolDownAt < 1500 && !(e.target.closest && e.target.closest('#dtool'))) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
   tool.addEventListener('click', (e) => { if (upDone) { upDone = false; return; } act(e); });
   function act(e) {
     const c = e.target.closest('[data-c]'); if (c) { ui.color = c.dataset.c; ui.tool = 'pen'; saveUI(); paintTool(); closePops(); return; }
