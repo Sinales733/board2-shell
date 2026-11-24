@@ -60,6 +60,9 @@ final class InkDiag {
         if ShotMode.isOn { ShotMode.hostWrite(".ink.log", line, append: true) }
     }
 
+    /// 还留在内存里的日志里有没有这一句（截图模式的测试用）
+    func contains(_ t: String) -> Bool { lines.contains { $0.contains(t) } }
+
     /// 最近几行（截图模式的状态文件用）。
     func tail(_ n: Int) -> [String] { Array(lines.suffix(n)) }
 

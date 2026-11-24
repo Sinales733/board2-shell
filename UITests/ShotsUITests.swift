@@ -300,14 +300,14 @@ final class ShotsUITests: XCTestCase {
             var skip: [[Double]] = [[ex - 30, 0, 60, H0]]
             if let r = web()["dtool"] as? [Double] { skip.append(r) }
             if let r = native()["toggle"] as? [Double] { skip.append(r) }
-            if windowed { skip.append([30, 40, 110, 80]); skip.append([W0 - 90, H0 - 120, 90, 120]) }   // 系统的窗口按钮（左上）、缩放把手（右下）
+            if windowed { skip.append([30, 40, 110, 80]); skip.append([W0 - 90, H0 - 120, 90, 120]); skip.append([0, 0, W0, 30]) }   // 窗口模式下系统画的：窗口按钮（左上）、缩放把手（右下）、顶上的时间
             // 被切开的第 2–4 笔：沿原来的笔画外扩 4 点的长条单独比（只允许边缘抗锯齿变化），不算进"别的笔迹"
-            let cutBands: [[Double]] = (1...3).map { i in [z.x0 - 4, z.ys[i] - 4, z.x1 - z.x0 + 8, 28] }
+            let cutBands: [[Double]] = (1...3).map { i in [z.x0 - 4, z.ys[i] - 6, z.x1 - z.x0 + 8, 32] }   // 笔画从 y 斜到 y+20，粗 2.4
             let (cdiff, _) = pixelDiff(shot0, shot1, W0, skip, save: outDir.appendingPathComponent("erase-diff-all-\(o).png"))
             skip += cutBands
             let (diff, box) = pixelDiff(shot0, shot1, W0, skip, save: outDir.appendingPathComponent("erase-diff-\(o).png"))
             step("eraser: pixels outside 30pt of the eraser path identical", diff == 0,
-                 "differing pixels=\(diff) in box(pt)=\(box); excluded cut strokes 2-4 (±4pt), where \(cdiff) pixels differ in all" + (windowed ? " (skipped system window chrome)" : ""))
+                 "differing pixels=\(diff) in box(pt)=\(box) (diff image erase-diff-\(o).png); excluded cut strokes 2-4 bands, all-diff=\(cdiff)" + (windowed ? " (skipped system window chrome and clock)" : ""))
         }
         tool1("undo", "toolbar undo restores erase", keepsCount: false) { prints() == pre }
         tool1("pen", "toolbar pen") { tool().hasPrefix("ink") }
@@ -479,8 +479,8 @@ final class ShotsUITests: XCTestCase {
         let tb = web()["tool"] as? String ?? "?"
         cmd("pencil2"); settle()
         let ta = web()["tool"] as? String ?? "?"
-        let logs = (native()["log"] as? [String] ?? []).joined(separator: "\n")
-        step("pencil double tap handler: switches once, toolbar follows, logged", tb != ta && tool().hasPrefix(ta == "eraser" ? "eraser" : "ink") && logs.contains("pencil double tap -> web"),
+        let logged = (native()["pencilLogged"] as? Bool) == true
+        step("pencil double tap handler: switches once, toolbar follows, logged", tb != ta && tool().hasPrefix(ta == "eraser" ? "eraser" : "ink") && logged,
              "web tool \(tb)->\(ta) native=\(tool())")
         app.terminate()
         return steps

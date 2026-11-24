@@ -635,7 +635,7 @@ final class InkLayer: NSObject {
         let tf = toggle.frame
         return ["count": canvas.drawing.strokes.count, "strokes": strokes, "prints": prints, "open": isOpen, "id": id ?? NSNull(),
                 "view": [Double(v.x), Double(v.y), Double(v.z)], "tool": InkLayer.toolName(canvas.tool),
-                "color": colorName, "canUndo": canvas.undoManager?.canUndo ?? false, "lastTap": lastTap, "mainGaps": MainBeat.gaps, "mainSlow": MainBeat.slow, "lastColor": lastStrokeColor(),
+                "color": colorName, "canUndo": canvas.undoManager?.canUndo ?? false, "lastTap": lastTap, "pencilLogged": InkDiag.shared.contains("pencil double tap -> web"), "mainGaps": MainBeat.gaps, "mainSlow": MainBeat.slow, "lastColor": lastStrokeColor(),
                 "webBtn": [Double(webBtn.minX), Double(webBtn.minY), Double(webBtn.width), Double(webBtn.height)], "covered": webBtnCovered,
                 "passRects": canvas.passRects.map { [Double($0.minX), Double($0.minY), Double($0.width), Double($0.height)] },
                 "screen": [Double(host?.bounds.width ?? 0), Double(host?.bounds.height ?? 0)],
