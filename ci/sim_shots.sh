@@ -63,6 +63,11 @@ RC_INK=$?
 xcodebuild test-without-building "${COMMON[@]}" -only-testing:Board2ShotsUITests/ShotsUITests/testShots -resultBundlePath "$OUT/result.xcresult" > "$OUT/xctest.log" 2>&1
 RC=$?
 
+# 系统日志里和手势、取消有关的（SpringBoard、backboardd、App 进程里 UIKit 的），对"触摸被系统收走"用：哪个系统手势认出来了
+xcrun simctl spawn "$UDID" log show --last 120m --style compact --info --debug \
+  --predicate '(process == "SpringBoard" OR process == "backboardd" OR process == "Board2Shell") AND (eventMessage CONTAINS[c] "gesture" OR eventMessage CONTAINS[c] "cancel")' \
+  > "$OUT/system-gestures-full.log" 2>/dev/null || true
+
 # 窗口模式整套：iPadOS 26 用户也能把 App 开成窗口。恢复 r18–r21 那种设置（只关 Chamois 等三个键、不写 Medusa——那几轮竖屏都是窗口），
 # 重启，再跑一遍 testInk；测试里要是 App 还是全屏，会拖窗口右下角的缩放把手把它缩成窗口（试了什么都记在那一步的说明里）。
 # 只删掉四个键（r24）不行：App 照样全屏。
@@ -76,6 +81,10 @@ xcrun simctl bootstatus "$UDID" -b
 xcrun simctl spawn "$UDID" defaults read com.apple.springboard > "$OUT/springboard-windowed.txt" 2>&1 || true
 TEST_RUNNER_B2_INK_WINDOWED=1 xcodebuild test-without-building "${COMMON[@]}" -only-testing:Board2ShotsUITests/ShotsUITests/testInk > "$OUT/xctest-ink-windowed.log" 2>&1
 RC_INKW=$?
+# 系统日志里和手势、取消有关的（SpringBoard、backboardd、App 进程里 UIKit 的），对"触摸被系统收走"用：哪个系统手势认出来了
+xcrun simctl spawn "$UDID" log show --last 120m --style compact --info --debug \
+  --predicate '(process == "SpringBoard" OR process == "backboardd" OR process == "Board2Shell") AND (eventMessage CONTAINS[c] "gesture" OR eventMessage CONTAINS[c] "cancel")' \
+  > "$OUT/system-gestures-windowed.log" 2>/dev/null || true
 set +e
 
 kill "$STUB" 2>/dev/null
