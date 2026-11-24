@@ -186,7 +186,7 @@ enum StallSampler {
         let th = Thread {
             while true {
                 Thread.sleep(forTimeInterval: 0.05)
-                guard MainBeat.running, let m = mainThread else { continue }
+                guard MainBeat.running || MainWatch.active, let m = mainThread else { continue }
                 let idle = DispatchTime.now().uptimeNanoseconds &- lastTick
                 if idle > 400_000_000 && !sampled { sampled = true; pthread_kill(m, SIGUSR2) }
             }
@@ -232,9 +232,12 @@ enum MainWatch {
     private static let lock = NSLock()
     private static var buf: [Int64] = []
     private static var started = false
+    static var active: Bool { started }
+    private static var lastRun: Int64 = 0
     static func start() {
         guard ShotMode.isOn, !started else { return }
         started = true
+        StallSampler.startIfNeeded()
         let th = Thread {
             var n = 0
             while true {
@@ -242,6 +245,9 @@ enum MainWatch {
                 DispatchQueue.main.async {
                     let t = Int64((Date().timeIntervalSince1970 * 1000).rounded())
                     lock.lock(); buf.append(t); lock.unlock()
+                    StallSampler.tick()
+                    if lastRun > 0 && t - lastRun > 250 { StallSampler.takeAsync(lastRun) }   // 刚缓过来：把卡着时抓到的调用栈记下来
+                    lastRun = t
                 }
                 n += 1
                 if n % 20 == 0 {

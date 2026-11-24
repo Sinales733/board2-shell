@@ -581,14 +581,15 @@ final class ShotsUITests: XCTestCase {
         step("online again: cleared old draft uploaded", v2() == 0 && srv.contains("\"s\": []"), "v2=\(v2()) server=\(srv.prefix(120))")
 
         // ---- 三.1 旧稿晚到（假服务故意晚 5 秒回）：加载中挪纸，回来后取景窗不跳回；加载中清空，回来的旧稿一起清 ----
-        _ = http("_resetdrafts"); _ = http("_slowdraft?ms=5000")
+        // 假服务故意晚 10 秒回：窗口模式下 XCUITest 每点一下要 3 秒多，要保证挪纸、两下清空都发生在旧稿回来之前（r34 窗口竖屏 5 秒不够）
+        _ = http("_resetdrafts"); _ = http("_slowdraft?ms=10000")
         app.terminate(); launch()
         _ = tapToggle(); settle(0.3)
         let ld1 = (web()["loading"] as? Bool) == true, nv0 = nview()
         z = zone()
         drag((z.x0 + 40, z.ys[2]), (z.x0 + 140, z.ys[2] + 90), velocity: 300, press: 0.05, hold: 0.3)   // 只认笔：单指挪纸
         let ld2 = (web()["loading"] as? Bool) == true, nv1 = nview()
-        Thread.sleep(forTimeInterval: 5.5)
+        Thread.sleep(forTimeInterval: 10.5)
         let nv2 = nview(), wv = web()["V"] as? [Double] ?? []
         let panned = nv0.count == 3 && nv1.count == 3 && (abs(nv1[0] - nv0[0]) > 10 || abs(nv1[1] - nv0[1]) > 10)
         let follows = wv.count == 3 && nv2.count == 3 && abs(wv[0] - nv2[0]) < 1 && abs(wv[1] - nv2[1]) < 1 && abs(wv[2] - nv2[2]) < 0.001
@@ -600,7 +601,7 @@ final class ShotsUITests: XCTestCase {
         let ld3 = (web()["loading"] as? Bool) == true
         clearTwice("slow old draft: clear tap 1", "slow old draft: clear tap 2") { true }
         let ld4 = (web()["loading"] as? Bool) == true
-        Thread.sleep(forTimeInterval: 5.5)
+        Thread.sleep(forTimeInterval: 10.5)
         _ = http("_slowdraft?ms=0")   // 读电脑那份之前恢复正常（测试自己的请求也会被拖 5 秒、超时）
         let srvS = http("draft?id=2009-01")
         step("old draft arrives after a clear: cleared too and written back", ld3 && ld4 && v2() == 0 && srvS.contains("\"s\": []"),

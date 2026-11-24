@@ -622,6 +622,12 @@ extension ShellViewController: WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         state = .loaded
+        DispatchQueue.main.async { [weak self] in
+            guard let w = self?.webView, !w.isFirstResponder else { return }
+            let t0 = ProcessInfo.processInfo.systemUptime
+            let ok = w.becomeFirstResponder()
+            InkDiag.shared.log("web first responder at load: \(ok) took \(Int((ProcessInfo.processInfo.systemUptime - t0) * 1000))ms")
+        }
         if overlay.mode == .failure || !overlay.isShown { overlay.hide() } else { overlay.setBusy(false) }
         reveal()
         paintOffline()
