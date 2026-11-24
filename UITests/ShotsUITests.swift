@@ -433,8 +433,10 @@ final class ShotsUITests: XCTestCase {
         //      回来以后：这一下没被算成点击、工具条上没有残留的按下、同一个按钮点一下就生效（1.7"点不动"那一类状态残留）----
         do {
             let before = cancelLines().count, act0 = lastTap()["act"] as? Int ?? 0
-            try? "1".write(to: outDir.appendingPathComponent("interrupt.req"), atomically: true, encoding: .utf8)
-            if let c = center(wbtn("pen")) { mark("press-interrupted") { at(c.0, c.1).press(forDuration: 3.0) } }
+            // 上弦：App 在这一下按下的那一刻请宿主机打开设置 App（XCUITest 按下前自己要先等一两秒，所以不能由测试这边掐时间）
+            try? "1".write(to: outDir.appendingPathComponent("interrupt.arm"), atomically: true, encoding: .utf8)
+            if let c = center(wbtn("pen")) { mark("press-interrupted") { at(c.0, c.1).press(forDuration: 5.0) } }
+            try? FileManager.default.removeItem(at: outDir.appendingPathComponent("interrupt.arm"))
             app.activate(); settle(2.5)
             let newL = Array(cancelLines().dropFirst(before))
             setupCancels += newL   // 测试自己造的取消：单独记，不算进"不许有被取消的触摸"

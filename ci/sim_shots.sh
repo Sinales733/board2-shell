@@ -75,10 +75,10 @@ if command -v ffmpeg > /dev/null; then
   ffmpeg -loglevel error -i "$OUT/motion.mp4" -vf "fps=6,scale=900:-1" "$OUT/motion-frames/f%04d.jpg" || true
 fi
 
-# 主动造取消用：测试写 ~/b2shots/interrupt.req，这里 1 秒后把"设置" App 开到前台（测试那边正按住一个按钮不放）
+# 主动造取消用：测试按住一个按钮不放时，App 在按下那一刻写 ~/b2shots/interrupt.req，这里马上把"设置" App 开到前台
 ( while true; do
     if [ -f "$HOME/b2shots/interrupt.req" ]; then
-      rm -f "$HOME/b2shots/interrupt.req"; sleep 1.0
+      rm -f "$HOME/b2shots/interrupt.req"
       xcrun simctl launch "$UDID" com.apple.Preferences > /dev/null 2>&1 && echo "interrupt: launched Settings at $(date -u +%H:%M:%S.%N)" >> "$OUT/interrupt.log"
     fi
     sleep 0.1

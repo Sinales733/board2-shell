@@ -710,6 +710,7 @@
     const r = el.getBoundingClientRect(), m = 14;
     if (e.clientX < r.left - m || e.clientX > r.right + m || e.clientY < r.top - m || e.clientY > r.bottom + m) return;   // 滑出按钮再松手：不算
     if (e.pointerType === 'mouse') upDone = performance.now();   // 鼠标：紧跟着来的 click 不再算第二次（触摸的 click 在 touchend 上已经拦掉）
+    else touchPending = 0;   // 手指 / 笔：touchstart 已拦掉浏览器补的 click，没有 click 来消费它，这里清掉，不留"按着"的状态
     act(e);
   });
   /* 在工具条上按下的手指 / 笔（包括拖手柄、拖透明度）抬起时都不要浏览器补 click：拖手柄松手时手指往往已经在工具条外面，

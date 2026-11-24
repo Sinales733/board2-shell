@@ -38,6 +38,14 @@ enum TouchClock {
         switch t.phase {
         case .began:
             lastBegin = rec
+            if ShotMode.isOn, let dir = ShotMode.hostOut {   // 主动造取消的测试：按下的那一刻请宿主机把别的 App 开到前台
+                let arm = dir.appendingPathComponent("interrupt.arm")
+                if FileManager.default.fileExists(atPath: arm.path) {
+                    try? FileManager.default.removeItem(at: arm)
+                    try? "1".write(to: dir.appendingPathComponent("interrupt.req"), atomically: true, encoding: .utf8)
+                    InkDiag.shared.log("test interrupt requested at touch began t=\(ms)")
+                }
+            }
             downAt[ObjectIdentifier(t)] = (ms, p)
             if downAt.count > 40 { downAt.removeAll() }
             InkDiag.shared.log("touch began \(kind) t=\(ms) recv=\(recv) at \(rec.1),\(rec.2) view=\(v)")
