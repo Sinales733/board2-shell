@@ -96,6 +96,9 @@ final class ShotsUITests: XCTestCase {
     /// 坐标以网页视图为基准按比例换算（XCUITest 报的元素框和 App 自己的坐标差约 1.107 倍，按比例换算就对得上）。
     /// 每个方向：被系统取消的触摸、网页的 pointercancel / touchcancel 各几次、原始记录（写进 inktest.json 的 cancels）
     private var cancelStats: [String: Any] = [:]
+    /// 窗口模式那一遍（CI 把模拟器切回"窗口化 App"后再跑一遍 testInk，环境变量 B2_INK_WINDOWED=1）：
+    /// 结果写 inktest-windowed.json，各文件名带 -windowed / inktestw-，"全屏"那一步换成"确实在窗口里"
+    private let windowedPass = ProcessInfo.processInfo.environment["B2_INK_WINDOWED"] == "1"
 
     func testInk() {
         _ = http("_online")
@@ -107,14 +110,15 @@ final class ShotsUITests: XCTestCase {
         let pass = !steps.isEmpty && steps.allSatisfy { ($0["ok"] as? Bool) == true || ($0["env"] as? Bool) == true }
         let obj: [String: Any] = ["pass": pass, "steps": steps, "cancels": cancelStats]
         if let d = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]) {
-            try? d.write(to: outDir.appendingPathComponent("inktest.json"))
+            try? d.write(to: outDir.appendingPathComponent(windowedPass ? "inktest-windowed.json" : "inktest.json"))
         }
         XCUIDevice.shared.orientation = .portrait
     }
 
     // swiftlint:disable:next function_body_length
     private func inkRun(_ o: String, _ ori: UIDeviceOrientation) -> [[String: Any]] {
-        let name = "inktest-\(o)"
+        let name = (windowedPass ? "inktestw-" : "inktest-") + o
+        let fo = windowedPass ? "\(o)-windowed" : o   // 截图、差异图文件名里用
         let app = XCUIApplication()
         let readyURL = outDir.appendingPathComponent(name + ".ready")
         let stateURL = outDir.appendingPathComponent(name + ".state.json")
@@ -264,19 +268,24 @@ final class ShotsUITests: XCTestCase {
         }
         var (windowed, wnote) = isWindowed()
         var tried: [String] = []
-        if windowed {   // 试一：转一下屏再转回来
+        if windowed && !windowedPass {   // 试一：转一下屏再转回来
             XCUIDevice.shared.orientation = o == "portrait" ? .landscapeLeft : .portrait; Thread.sleep(forTimeInterval: 1.5)
             XCUIDevice.shared.orientation = ori; Thread.sleep(forTimeInterval: 1.5)
             (windowed, wnote) = isWindowed(); tried.append("rotate→\(windowed ? "still windowed" : "full")")
         }
-        if windowed {   // 试二：系统窗口按钮（左上三个点）里的"全屏 / 填满"
+        if windowed && !windowedPass {   // 试二：系统窗口按钮（左上三个点）里的"全屏 / 填满"
             sb.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: 91, dy: 75)).tap(); Thread.sleep(forTimeInterval: 1.0)
             let menu = sb.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'full' OR label CONTAINS[c] 'fill' OR label CONTAINS '全屏' OR label CONTAINS '填满'")).firstMatch
             if menu.waitForExistence(timeout: 2) { tried.append("menu '\(menu.label)'"); menu.tap(); Thread.sleep(forTimeInterval: 1.5) } else { tried.append("no full-screen item") }
             (windowed, wnote) = isWindowed(); tried.append(windowed ? "still windowed" : "full")
         }
         let fsNote = wnote + " tried=\(tried) app-reported screen=\(scr) web=\(W0)x\(H0)"
-        if windowed && o == "portrait" {
+        if windowedPass {
+            // 窗口模式那一遍：竖屏必须真的在窗口里（不然这一遍白跑）；横屏系统可能照样给全屏，记下来不算错
+            try? XCUIScreen.main.screenshot().pngRepresentation.write(to: outDir.appendingPathComponent("window-\(fo).png"))
+            if o == "portrait" { step("app runs in a window (windowed pass)", windowed, fsNote + " (screenshot window-\(fo).png)") }
+            else { envStep("app runs in a window (windowed pass)", windowed, fsNote + " (screenshot window-\(fo).png)") }
+        } else if windowed && o == "portrait" {
             // 竖屏全屏在这台模拟器上造不出来：存一张窗口状态的截图，记成"环境限制"；后面整套触摸测试照样在窗口里跑（坐标按窗口框换算），必须全过
             try? XCUIScreen.main.screenshot().pngRepresentation.write(to: outDir.appendingPathComponent("fullscreen-\(o)-windowed.png"))
             envStep("app runs full screen", false, fsNote + " (screenshot fullscreen-\(o)-windowed.png)")
@@ -314,8 +323,8 @@ final class ShotsUITests: XCTestCase {
         step("eraser cuts strokes 2-4, strokes 1 and 5 unchanged", untouched && cut, "before \(pre.count) after \(post.count) untouched=\(untouched) cut=\(cut)")
         if o == "portrait" {
             let shot1 = XCUIScreen.main.screenshot().pngRepresentation
-            try? shot0.write(to: outDir.appendingPathComponent("erase-before-\(o).png"))
-            try? shot1.write(to: outDir.appendingPathComponent("erase-after-\(o).png"))
+            try? shot0.write(to: outDir.appendingPathComponent("erase-before-\(fo).png"))
+            try? shot1.write(to: outDir.appendingPathComponent("erase-after-\(fo).png"))
             // 不比的区域：橡皮轨迹左右各 30 点、工具条、收起按钮
             var skip: [[Double]] = [[ex - 30, 0, 60, H0]]
             if let r = web()["dtool"] as? [Double] { skip.append(r) }
@@ -325,11 +334,11 @@ final class ShotsUITests: XCTestCase {
             let scrSkip: [[Double]] = windowed ? [[Double(winF.minX), Double(winF.minY), 120, 50], [Double(winF.maxX) - 60, Double(winF.maxY) - 60, 60, 60]] : []
             // 被切开的第 2–4 笔：沿原来的笔画外扩 4 点的长条单独比（只允许边缘抗锯齿变化），不算进"别的笔迹"
             let cutBands: [[Double]] = (1...3).map { i in [z.x0 - 4, z.ys[i] - 6, z.x1 - z.x0 + 8, 32] }   // 笔画从 y 斜到 y+20，粗 2.4
-            let all = pixelDiff(shot0, shot1, W0, skip, win: winF, scrW: scrW, scrSkip: scrSkip, save: outDir.appendingPathComponent("erase-diff-all-\(o).png"))
+            let all = pixelDiff(shot0, shot1, W0, skip, win: winF, scrW: scrW, scrSkip: scrSkip, save: outDir.appendingPathComponent("erase-diff-all-\(fo).png"))
             skip += cutBands
-            let r = pixelDiff(shot0, shot1, W0, skip, win: winF, scrW: scrW, scrSkip: scrSkip, save: outDir.appendingPathComponent("erase-diff-\(o).png"))
+            let r = pixelDiff(shot0, shot1, W0, skip, win: winF, scrW: scrW, scrSkip: scrSkip, save: outDir.appendingPathComponent("erase-diff-\(fo).png"))
             step("eraser: pixels outside 30pt of the eraser path: none differ by more than 8 levels", r.big == 0,
-                 ">8 levels: \(r.big) px box(app pt)=\(r.bigBox); 1-8 levels: \(r.small) px max=\(r.smallMax) box(app pt)=\(r.smallBox) (diff image erase-diff-\(o).png: red >8, orange 1-8); with cut strokes 2-4 bands: >8=\(all.big) 1-8=\(all.small) max=\(all.smallMax); window=\(winF)" + (windowed ? " (outside the window and system window chrome not compared)" : ""))
+                 ">8 levels: \(r.big) px box(app pt)=\(r.bigBox); 1-8 levels: \(r.small) px max=\(r.smallMax) box(app pt)=\(r.smallBox) (diff image erase-diff-\(fo).png: red >8, orange 1-8); with cut strokes 2-4 bands: >8=\(all.big) 1-8=\(all.small) max=\(all.smallMax); window=\(winF)" + (windowed ? " (outside the window and system window chrome not compared)" : ""))
         }
         tool1("undo", "toolbar undo restores erase", keepsCount: false) { prints() == pre }
         tool1("pen", "toolbar pen") { tool().hasPrefix("ink") }
@@ -395,7 +404,7 @@ final class ShotsUITests: XCTestCase {
         let n0 = count(), v2a = v2()
         tool1("clear", "clear first tap: confirm state only") { (web()["clearSure"] as? Bool) == true && (web()["sureShown"] as? Bool) == true && count() == n0 && v2() == v2a }
         let sureShot = XCUIScreen.main.screenshot().pngRepresentation
-        try? sureShot.write(to: outDir.appendingPathComponent("clearsure-\(o)-tapped.png"))
+        try? sureShot.write(to: outDir.appendingPathComponent("clearsure-\(fo)-tapped.png"))
         let k0 = web()["clk"] as? Int ?? -1
         _ = tapRect(wbtn("sure")); settle()
         step("tap on confirm bubble: nothing cleared, page not clicked", count() == n0 && v2() == v2a && (web()["clk"] as? Int ?? -2) == k0, "count=\(count()) v2=\(v2()) page clicks \(k0)->\(web()["clk"] ?? "nil")")

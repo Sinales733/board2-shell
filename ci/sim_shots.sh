@@ -62,12 +62,24 @@ xcodebuild test-without-building "${COMMON[@]}" -only-testing:Board2ShotsUITests
 RC_INK=$?
 xcodebuild test-without-building "${COMMON[@]}" -only-testing:Board2ShotsUITests/ShotsUITests/testShots -resultBundlePath "$OUT/result.xcresult" > "$OUT/xctest.log" 2>&1
 RC=$?
+
+# 窗口模式整套：iPadOS 26 用户也能把 App 开成窗口。把上面写的全屏设置删掉（回到新模拟器默认的"窗口化 App"），重启，再跑一遍 testInk。
+for k in SBChamoisWindowingEnabled SBMedusaMultitaskingEnabled SBWindowingEnabled SBMultitaskingWindowedAppsEnabled; do
+  xcrun simctl spawn "$UDID" defaults delete com.apple.springboard "$k" || true
+done
+xcrun simctl shutdown "$UDID" || true
+xcrun simctl boot "$UDID" || true
+xcrun simctl bootstatus "$UDID" -b
+xcrun simctl spawn "$UDID" defaults read com.apple.springboard > "$OUT/springboard-windowed.txt" 2>&1 || true
+TEST_RUNNER_B2_INK_WINDOWED=1 xcodebuild test-without-building "${COMMON[@]}" -only-testing:Board2ShotsUITests/ShotsUITests/testInk > "$OUT/xctest-ink-windowed.log" 2>&1
+RC_INKW=$?
 set +e
 
 kill "$STUB" 2>/dev/null
 grep -E "error:" "$OUT/xcbuild.log" | head -n 30
 grep -E "^SHOT |error:|Test Case .*(passed|failed)|\*\* TEST" "$OUT/xctest-motion.log" "$OUT/xctest.log" | head -n 200
 grep -E "^INK " "$OUT/xctest-ink.log" | head -n 80
+grep -E "^INK .*ok=false" "$OUT/xctest-ink-windowed.log" | head -n 40
 cp Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png "$OUT/icon-1024.png" 2>/dev/null
 cp -R "$HOME/b2shots/." "$OUT/" 2>/dev/null || echo "没有截图输出（~/b2shots 不在）"
 xcrun simctl spawn "$UDID" log show --last 30m --predicate 'process == "Board2Shell" AND eventMessage CONTAINS "Board2Shell"' --style compact > "$OUT/app.log" 2>/dev/null || true
@@ -76,9 +88,9 @@ echo "===== selftest-offline ====="; cat "$OUT/selftest-offline.json" 2>/dev/nul
 echo "===== posts after replay ====="; cat "$OUT/stub-posts-after-replay.json" 2>/dev/null; echo
 echo "===== app log (JS errors) ====="; grep "Board2Shell JS" "$OUT/app.log" | head -n 40
 ls -la "$OUT"
-echo "xcodebuild test exit codes: shots=$RC ink=$RC_INK motion=$RC_MOTION"
+echo "xcodebuild test exit codes: shots=$RC ink=$RC_INK ink-windowed=$RC_INKW motion=$RC_MOTION"
 # 自检有一条不对、或者有截图没等到就绪：让 CI 变红（截图仍然照常上传）
 python3 ci/check_selftest.py "$OUT"
 CHECK=$?
-if [ $RC -ne 0 ] || [ $RC_INK -ne 0 ] || [ $RC_MOTION -ne 0 ] || [ $CHECK -ne 0 ]; then exit 1; fi
+if [ $RC -ne 0 ] || [ $RC_INK -ne 0 ] || [ $RC_INKW -ne 0 ] || [ $RC_MOTION -ne 0 ] || [ $CHECK -ne 0 ]; then exit 1; fi
 exit 0

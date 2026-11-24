@@ -107,6 +107,30 @@ for o in ("portrait", "landscape"):
 extra = [k for k in steps if k.split(": ", 1)[-1] not in names]
 check(not extra, f"真实触摸写字：名单外的步骤 {extra}")
 
+# 窗口模式那一遍（iPadOS 26 用户可以把 App 开成窗口）：整套同样必须全过，坐标按窗口框换算
+inkw = load("inktest-windowed.json")
+stw = {st.get("name"): st for st in (inkw.get("steps") or [])}
+WN = "app runs in a window (windowed pass)"
+for o in ("portrait", "landscape"):
+    for n in names:
+        if o == "landscape" and n.startswith("eraser: pixels"):
+            continue
+        n2 = WN if n == "app runs full screen" else n
+        st = stw.get(f"{o}: {n2}")
+        if st is None:
+            bad.append(f"窗口模式 {o}: 少了一步「{n2}」")
+        elif st.get("ok") is not True:
+            if o == "landscape" and n2 == WN and st.get("env") is True:
+                print(f"（记录）窗口模式横屏：{st.get('note')}")
+                continue
+            bad.append(f"窗口模式 {o}: {n2}：{st.get('note')}")
+    cs = (inkw.get("cancels") or {}).get(o)
+    check(isinstance(cs, dict), f"窗口模式 被取消的触摸 {o}：没有统计")
+    if isinstance(cs, dict):
+        print(f"窗口模式 被取消的触摸 {o}：原生 {cs.get('nativeTouchCancelled')}、网页 pointercancel {cs.get('webPointerCancel')}、touchcancel {cs.get('webTouchCancel')}")
+extraw = [k for k in stw if k.split(": ", 1)[-1] not in names + [WN]]
+check(not extraw, f"窗口模式：名单外的步骤 {extraw}")
+
 print("===== 自检结果 =====")
 if bad:
     for b in bad:
