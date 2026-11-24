@@ -225,9 +225,10 @@ final class ShotsUITests: XCTestCase {
 
         // ---- 全屏、按钮位置 ----
         let (W0, H0) = wh()
-        let scr = native()["uiscreen"] as? [Double] ?? [], win = native()["window"] as? [Double] ?? [], wf = native()["webFrame"] as? [Double] ?? []
-        step("app runs full screen", scr.count == 2 && win == scr && wf.count == 4 && wf[2] == scr[0] && wf[3] == scr[1] && W0 == scr[0] && H0 == scr[1],
-             "screen=\(scr) window=\(win) webView=\(wf) web=\(W0)x\(H0)")
+        let scr = native()["uiscreen"] as? [Double] ?? []
+        let winF = app.windows.firstMatch.frame, scrF = XCUIApplication(bundleIdentifier: "com.apple.springboard").frame
+        let windowed = abs(winF.width - scrF.width) > 1 || abs(winF.height - scrF.height) > 1 || winF.minX > 1 || winF.minY > 1
+        step("app runs full screen", !windowed, "XCUI window frame=\(winF) screen=\(scrF) app-reported screen=\(scr) web=\(W0)x\(H0)")
         let tg0 = native()["toggle"] as? [Double] ?? [], wb = web()["draftBtn"] as? [Double] ?? []
         var cd = 9999.0
         if let a = center(tg0), let b = center(wb) { cd = hypot(a.0 - b.0, a.1 - b.1) }
@@ -240,12 +241,16 @@ final class ShotsUITests: XCTestCase {
         // ---- 写 5 笔（命令让手指也写） ----
         cmd("finger on")
         var z = zone()
-        for i in 0..<5 { write("stroke \(i + 1)", (z.x0, z.ys[i]), (z.x1, z.ys[i] + 20)) }
+        let ex = min(W0 * 0.3, 250)   // 橡皮竖着擦的位置：在旧稿两条横线（纸面 x 60–300）的范围里
+        for i in 0..<5 {
+            let x1 = (i == 0 || i == 4) ? ex - 50 : z.x1   // 第 1、5 笔只写到橡皮左边，橡皮碰不到
+            write("stroke \(i + 1)", (z.x0, z.ys[i]), (x1, z.ys[i] + 20))
+        }
 
         // ---- 橡皮：竖着擦过第 2、3、4 笔和垫底的两条旧稿；第 1、5 笔逐点不变；竖屏再比画面 ----
         let pre = prints()
         tool1("eraser", "toolbar eraser") { tool().hasPrefix("eraser") }
-        let ex = W0 * 0.3, ey0 = z.ys[1] - 30, ey1 = max(z.ys[3] + 30, 600)
+        let ey0 = z.ys[1] - 30, ey1 = max(z.ys[3] + 30, 600)
         let shot0 = o == "portrait" ? XCUIScreen.main.screenshot().pngRepresentation : Data()
         drag((ex, ey0), (ex, ey1), velocity: 200)
         settle(1.5)
@@ -261,8 +266,9 @@ final class ShotsUITests: XCTestCase {
             var skip: [[Double]] = [[ex - 30, 0, 60, H0]]
             if let r = web()["dtool"] as? [Double] { skip.append(r) }
             if let r = native()["toggle"] as? [Double] { skip.append(r) }
+            if windowed { skip.append([30, 40, 110, 80]); skip.append([W0 - 90, H0 - 120, 90, 120]) }   // 系统的窗口按钮（左上）、缩放把手（右下）
             let (diff, box) = pixelDiff(shot0, shot1, W0, skip, save: outDir.appendingPathComponent("erase-diff-\(o).png"))
-            step("eraser: pixels outside 30pt of the eraser path identical", diff == 0, "differing pixels=\(diff) in box(pt)=\(box)")
+            step("eraser: pixels outside 30pt of the eraser path identical", diff == 0, "differing pixels=\(diff) in box(pt)=\(box)" + (windowed ? " (skipped system window chrome)" : ""))
         }
         tool1("undo", "toolbar undo restores erase", keepsCount: false) { prints() == pre }
         tool1("pen", "toolbar pen") { tool().hasPrefix("ink") }
@@ -357,11 +363,13 @@ final class ShotsUITests: XCTestCase {
         launch()
         _ = tapToggle(); settle(1.5)
         step("clear then kill + relaunch: stays cleared", isOpen() && count() == 0 && v2() == 0, "count=\(count()) v2=\(v2())")
+        cmd("finger on")
 
         // ---- 离线清空旧稿：换题再回来，旧稿不回来；连上后补传 ----
         _ = http("_resetdrafts")
         app.terminate(); launch(); _ = tapToggle(); settle(1.5)
         step("old draft restored on server for offline test", v2() == 2, "v2=\(v2())")
+        cmd("finger on")
         _ = switchTo("b", "2009-02"); _ = switchTo("a", "2009-01")   // 先在线打开过 2009-02：离线时只能打开 iPad 上存过的题
         settle(1.0)
         _ = http("_offline")

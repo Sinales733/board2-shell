@@ -21,6 +21,16 @@ UDID=$(echo "$LINE" | cut -f1)
 echo "simulator: $LINE" | tee "$OUT/device.txt"
 xcrun simctl boot "$UDID" || true
 xcrun simctl bootstatus "$UDID" -b
+# iPadOS 26 模拟器默认把 App 开在"窗口"里（缩小、带窗口按钮）。想办法切成全屏：关掉窗口化开关后重启模拟器。
+# 改前改后的 SpringBoard 设置都存下来，做不到时能看出原因。
+xcrun simctl spawn "$UDID" defaults read com.apple.springboard > "$OUT/springboard-before.txt" 2>&1 || true
+for k in SBChamoisWindowingEnabled SBWindowingEnabled SBMultitaskingWindowedAppsEnabled; do
+  xcrun simctl spawn "$UDID" defaults write com.apple.springboard "$k" -bool NO || true
+done
+xcrun simctl shutdown "$UDID" || true
+xcrun simctl boot "$UDID" || true
+xcrun simctl bootstatus "$UDID" -b
+xcrun simctl spawn "$UDID" defaults read com.apple.springboard > "$OUT/springboard-after.txt" 2>&1 || true
 
 python3 ci/stub_server.py 8409 ci/fixture > "$OUT/stub.log" 2>&1 &
 STUB=$!
