@@ -149,6 +149,8 @@ final class ShotsUITests: XCTestCase {
             return o
         }
         func native() -> [String: Any] { state()["native"] as? [String: Any] ?? [:] }
+        /// 状态文件写出到现在过了多久（毫秒）
+        func stateAge() -> Int { Int(Date().timeIntervalSince1970 * 1000) - (state()["ts"] as? Int ?? 0) }
         func web() -> [String: Any] { state()["web"] as? [String: Any] ?? [:] }
         func count() -> Int { native()["count"] as? Int ?? -1 }
         func prints() -> [String] { native()["prints"] as? [String] ?? [] }
@@ -179,7 +181,7 @@ final class ShotsUITests: XCTestCase {
             let t = lastTap(), act = t["act"] as? Int ?? 0, lta = t["liftToAct"] as? Int ?? -1
             let fresh = act != before && (t["a"] as? String) == k
             step(label, ok && fresh && lta >= 0 && lta <= 300 && expect() && (!keepsCount || count() == c0),
-                 "tapped=\(ok) fresh=\(fresh) lift→act=\(lta)ms count \(c0)->\(count())")
+                 "tapped=\(ok) fresh=\(fresh) lift→act=\(lta)ms count \(c0)->\(count())" + (fresh ? "" : " (state file age \(stateAge())ms, lastTap a=\(t["a"] ?? "nil") act=\(act))"))
         }
         let tgEl = app.buttons.matching(identifier: "b2draftToggle").firstMatch
         func tapToggle() -> Bool {
@@ -466,11 +468,13 @@ final class ShotsUITests: XCTestCase {
         // ---- 换题（真点页面上的题号和抽屉里的题）再换回来：逐笔指纹一样 ----
         let pa = prints()
         _ = tapRect(wbtn("clear")); settle(0.3)
-        let sureT0 = Date(), sureOn = (web()["clearSure"] as? Bool) == true
+        let sureOn = (web()["clearSure"] as? Bool) == true, sureAct = lastTap()["act"] as? Int ?? 0
         let closedForSwitch = tapToggle(); settle(0.5)
-        let sureMs = Int(Date().timeIntervalSince(sureT0) * 1000)
-        step("clear confirm, then close to switch question: confirm dropped at once", sureOn && closedForSwitch && (web()["clearSure"] as? Bool) == false && (web()["sureShown"] as? Bool) == false && sureMs < 3000,
-             "sure before=\(sureOn) after=\(web()["clearSure"] ?? "nil") bubble=\(web()["sureShown"] ?? "nil") checked \(sureMs)ms after confirm (timeout is 4000)")
+        let st8 = state(), w8 = st8["web"] as? [String: Any] ?? [:], ts8 = st8["ts"] as? Int ?? 0
+        let sinceConfirm = ts8 - sureAct   // 这份状态写出时，离确认那一下执行过了多久（App 时钟）
+        step("clear confirm, then close to switch question: confirm dropped at once",
+             sureOn && closedForSwitch && sureAct > 0 && (w8["clearSure"] as? Bool) == false && (w8["sureShown"] as? Bool) == false && (w8["open"] as? Bool) == false && sinceConfirm < 4000,
+             "sure before=\(sureOn) after=\(w8["clearSure"] ?? "nil") bubble=\(w8["sureShown"] ?? "nil") open=\(w8["open"] ?? "nil"): state written \(sinceConfirm)ms after the confirm tap ran (confirm timeout is 4000)")
         let s1 = switchTo("b", "2009-02")
         let pb0 = prints()
         z = zone()

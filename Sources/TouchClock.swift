@@ -12,6 +12,8 @@ enum TouchClock {
     private(set) static var cancelled = 0
     /// 每个手势识别器上次记下的状态：只在它进入 began / ended（认出来了）/ cancelled / failed 时记一行
     private static var grState: [ObjectIdentifier: Int] = [:]
+    /// 按下时刻（墙上毫秒），记第一次移动用；记过第一次移动的就删掉
+    private static var downAt: [ObjectIdentifier: (Int64, CGPoint)] = [:]
 
     static func install() {
         let c: AnyClass = UIApplication.self
@@ -34,8 +36,15 @@ enum TouchClock {
         switch t.phase {
         case .began:
             lastBegin = rec
+            downAt[ObjectIdentifier(t)] = (ms, p)
+            if downAt.count > 40 { downAt.removeAll() }
             InkDiag.shared.log("touch began \(kind) t=\(ms) at \(rec.1),\(rec.2) view=\(v)")
+        case .moved:
+            if let d = downAt.removeValue(forKey: ObjectIdentifier(t)) {
+                InkDiag.shared.log("touch first move \(kind) +\(ms - d.0)ms after down, moved \(Int(hypot(p.x - d.1.x, p.y - d.1.y)))pt at \(rec.1),\(rec.2)")
+            }
         case .ended, .cancelled:
+            downAt.removeValue(forKey: ObjectIdentifier(t))
             lastEnd = rec
             InkDiag.shared.log("touch \(t.phase == .ended ? "ended" : "cancelled") \(kind) t=\(ms) at \(rec.1),\(rec.2) view=\(v)")
             if t.phase == .cancelled {
@@ -94,7 +103,7 @@ extension UIApplication {
     @objc func b2_sendEvent(_ e: UIEvent) {
         let on = e.type == .touches && (InkDiag.shared.touchLogging || ShotMode.isOn)
         let ts = on ? (e.allTouches ?? []) : []
-        for t in ts where t.phase == .began || t.phase == .ended || t.phase == .cancelled { TouchClock.record(t) }
+        for t in ts where t.phase == .began || t.phase == .moved || t.phase == .ended || t.phase == .cancelled { TouchClock.record(t) }
         b2_sendEvent(e)   // 换过实现：这里调的是系统原来的 sendEvent
         if on { TouchClock.afterDispatch(ts) }
     }
