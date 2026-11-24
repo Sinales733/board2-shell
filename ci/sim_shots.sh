@@ -63,9 +63,12 @@ RC_INK=$?
 xcodebuild test-without-building "${COMMON[@]}" -only-testing:Board2ShotsUITests/ShotsUITests/testShots -resultBundlePath "$OUT/result.xcresult" > "$OUT/xctest.log" 2>&1
 RC=$?
 
-# 窗口模式整套：iPadOS 26 用户也能把 App 开成窗口。把上面写的全屏设置删掉（回到新模拟器默认的"窗口化 App"），重启，再跑一遍 testInk。
-for k in SBChamoisWindowingEnabled SBMedusaMultitaskingEnabled SBWindowingEnabled SBMultitaskingWindowedAppsEnabled; do
-  xcrun simctl spawn "$UDID" defaults delete com.apple.springboard "$k" || true
+# 窗口模式整套：iPadOS 26 用户也能把 App 开成窗口。恢复 r18–r21 那种设置（只关 Chamois 等三个键、不写 Medusa——那几轮竖屏都是窗口），
+# 重启，再跑一遍 testInk；测试里要是 App 还是全屏，会拖窗口右下角的缩放把手把它缩成窗口（试了什么都记在那一步的说明里）。
+# 只删掉四个键（r24）不行：App 照样全屏。
+xcrun simctl spawn "$UDID" defaults delete com.apple.springboard SBMedusaMultitaskingEnabled || true
+for k in SBChamoisWindowingEnabled SBWindowingEnabled SBMultitaskingWindowedAppsEnabled; do
+  xcrun simctl spawn "$UDID" defaults write com.apple.springboard "$k" -bool NO || true
 done
 xcrun simctl shutdown "$UDID" || true
 xcrun simctl boot "$UDID" || true

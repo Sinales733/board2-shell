@@ -258,7 +258,7 @@ final class ShotsUITests: XCTestCase {
         _ = base.waitForExistence(timeout: 10)
 
         // ---- 全屏、按钮位置 ----
-        let (W0, H0) = wh()
+        var (W0, H0) = wh()
         let scr = native()["uiscreen"] as? [Double] ?? []
         let sb = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         func isWindowed() -> (Bool, String) {
@@ -280,7 +280,16 @@ final class ShotsUITests: XCTestCase {
             (windowed, wnote) = isWindowed(); tried.append(windowed ? "still windowed" : "full")
         }
         let fsNote = wnote + " tried=\(tried) app-reported screen=\(scr) web=\(W0)x\(H0)"
+        if windowedPass && !windowed {
+            // 窗口模式那一遍但 App 是全屏：拖窗口右下角的缩放把手往里收，让它变成窗口（窗口化 App 模式下全屏的 App 也画着这个把手）
+            let wc = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1))
+            wc.withOffset(CGVector(dx: -6, dy: -6)).press(forDuration: 0.6, thenDragTo: wc.withOffset(CGVector(dx: -110, dy: -130)))
+            Thread.sleep(forTimeInterval: 2.0)
+            (windowed, wnote) = isWindowed(); tried.append("drag resize corner→\(windowed ? "windowed" : "still full")")
+            (W0, H0) = wh()   // 窗口变了，网页的宽高跟着变
+        }
         if windowedPass {
+            let fsNote = wnote + " tried=\(tried) app-reported screen=\(scr) web=\(W0)x\(H0)"
             // 窗口模式那一遍：竖屏必须真的在窗口里（不然这一遍白跑）；横屏系统可能照样给全屏，记下来不算错
             try? XCUIScreen.main.screenshot().pngRepresentation.write(to: outDir.appendingPathComponent("window-\(fo).png"))
             if o == "portrait" { step("app runs in a window (windowed pass)", windowed, fsNote + " (screenshot window-\(fo).png)") }
