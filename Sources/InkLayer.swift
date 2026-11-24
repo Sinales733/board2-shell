@@ -260,10 +260,12 @@ final class InkLayer: NSObject {
             // 时间线（墙上时间毫秒）：系统收到触摸开始 / 结束（TouchClock）→ 网页各事件的时间戳和处理时刻 → act() 执行 → App 收到
             let act = (body["t"] as? Double).map { Int64($0) } ?? 0
             let ev = (body["ev"] as? [String]) ?? []
-            let lift = TouchClock.lastEnd?.ms ?? 0, down = TouchClock.lastBegin?.ms ?? 0
+            let lift = TouchClock.lastEnd?.ms ?? 0, down = TouchClock.lastBegin?.ms ?? 0, liftRecv = TouchClock.lastEnd?.recv ?? 0
             let liftToAct = lift > 0 && act > 0 ? act - lift : -1
-            lastTap = ["a": body["a"] as? String ?? "?", "down": down, "lift": lift, "act": act, "liftToAct": liftToAct, "ev": ev, "recv": InkStore.now()]
-            InkDiag.shared.log("toolbar tap \(body["a"] as? String ?? "?") down=\(down) lift=\(lift) act=\(act) lift_to_act=\(liftToAct) app_recv=\(InkStore.now()) ev=\(ev.joined(separator: " "))")
+            // 晚到：抬手那下触摸自己的时间戳 → App 的 sendEvent 收到它；App 侧：收到 → 网页执行这一下
+            let late = lift > 0 && liftRecv > 0 ? liftRecv - lift : -1, appSide = liftRecv > 0 && act > 0 ? act - liftRecv : -1
+            lastTap = ["a": body["a"] as? String ?? "?", "down": down, "lift": lift, "act": act, "liftToAct": liftToAct, "late": late, "appSide": appSide, "liftRecv": liftRecv, "ev": ev, "recv": InkStore.now()]
+            InkDiag.shared.log("toolbar tap \(body["a"] as? String ?? "?") down=\(down) lift=\(lift) act=\(act) lift_to_act=\(liftToAct) late=\(late) app=\(appSide) lift_recv=\(liftRecv) app_recv=\(InkStore.now()) ev=\(ev.joined(separator: " "))")
             return
         case "undo":
             let can = canvas.undoManager?.canUndo ?? false

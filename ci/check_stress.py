@@ -49,61 +49,70 @@ def dist(v):
             "over300": sum(x > 300 for x in v)}
 
 
-# 系统日志里模拟器虚拟触摸设备（digitizer）断开 / 接上的时刻（UTC 墙上毫秒）
 sysl = (rd("system-gestures-stress.log") or "").split("\n")
 
+# 主线程存活看门狗：主线程每次执行看门狗丢过去的任务的时刻（墙上毫秒，约每 50 毫秒一次）
+beats = sorted(int(x) for x in rd(name + ".beats.log").split() if x.strip().isdigit())
 
-def sys_ms(l):
-    try:
-        return int(datetime.datetime.strptime(l[:23], "%Y-%m-%d %H:%M:%S.%f").replace(tzinfo=datetime.timezone.utc).timestamp() * 1000)
-    except ValueError:
+
+def max_beat_gap(a, b):
+    """[a, b] 这段时间里主线程心跳的最大间隔（含两头到最近心跳的距离）；这段里一下心跳都没有就返回 None"""
+    import bisect
+    lo, hi = bisect.bisect_left(beats, a), bisect.bisect_right(beats, b)
+    inside = beats[lo:hi]
+    if not inside:
         return None
+    pts = [a] + inside + [b]
+    return max(pts[k + 1] - pts[k] for k in range(len(pts) - 1))
 
 
-digi = [(sys_ms(l), l[:240]) for l in sysl if re.search(r"digitizer (detached|attached)|digitizer did disappear", l)]
-digi = [d for d in digi if d[0]]
+# 主会话裁定（B + 5 条）：
+# 1) 晚到（触摸时间戳→sendEvent 收到）>250ms 的那一下：[时间戳, 收到] 里主线程心跳相邻间隔最大值 ≤100ms 才算 App 无责，否则算 App 失败；
+# 2) App 侧（收到→生效；换工具量到 tool applied，其余量到网页执行）每一下 ≤300ms，不豁免；
+# 3) 每个配置晚到 >250ms 的不超过 3 下；
+# 4) 每一下晚到的逐条记：按钮、第几下、时间戳、收到时刻、晚到、窗口内最大心跳间隔、App 侧；
+# 5) 晚到 / App 侧也写进正式包的日志（App 那边 toolbar tap 行的 late= app=）。
+late_list, app_fail = [], []
 
 
-def tod_ms(l):
-    h, m_, s_ = l[:12].split(":")
-    return int((int(h) * 3600 + int(m_) * 60 + float(s_)) * 1000)
+def judge_late(kind, idx, stamp, recv, app_ms):
+    late = recv - stamp
+    if late <= 250:
+        return
+    gap = max_beat_gap(stamp, recv)
+    rec = {"what": kind, "nth": idx, "touchStamp": stamp, "sendEventRecv": recv, "lateMs": late,
+           "maxMainBeatGapMs": gap, "appSideMs": app_ms, "appBlameless": gap is not None and gap <= 100}
+    late_list.append(rec)
 
 
 # ---- 工具条 ----
 tb = section("stress-toolbar-start", "stress-toolbar-end")
-acts, lta, applied, env_slow, real_slow = {}, [], [], [], []
-cur_tool, want_apply, pend = "pen", 0, None
-arrival = {}   # 触摸自己的时间戳（墙上毫秒）→ App 收到它的时刻（日志行时刻，当天毫秒）
+acts, lta, app_tb, applied = {}, [], [], []
+cur_tool, want_apply, pend, n_tap = "pen", 0, None, 0
 for l in tb:
-    m = re.search(r"touch (began|ended) finger t=(\d+)", l)
+    m = re.search(r"toolbar tap (\S+) down=(\d+) lift=(\d+) act=(\d+) lift_to_act=(-?\d+) late=(-?\d+) app=(-?\d+) lift_recv=(\d+)", l)
     if m:
-        arrival[int(m.group(2))] = tod_ms(l)
-        continue
-    m = re.search(r"toolbar tap (\S+) down=(\d+) lift=(\d+) act=(\d+) lift_to_act=(-?\d+)", l)
-    if m:
-        a, down, lift, act, v = m.group(1), int(m.group(2)), int(m.group(3)), int(m.group(4)), int(m.group(5))
+        a, lift, act, v, late, app, lrecv = m.group(1), int(m.group(3)), int(m.group(4)), int(m.group(5)), int(m.group(6)), int(m.group(7)), int(m.group(8))
+        n_tap += 1
         acts[a] = acts.get(a, 0) + 1
         lta.append(v)
-        if v > 300:
-            # 抬手→执行超了：这一下触摸是不是很晚才送到 App，同时模拟器的虚拟触摸设备断开 / 重接过
-            arr = arrival.get(lift)
-            lag = (arr - lift % 86400000) if arr is not None else None
-            app_side = (act % 86400000) - arr if arr is not None else None
-            near_d = [d[1] for d in digi if down - 2000 <= d[0] <= lift + (lag or 0)]
-            rec = {"tap": a, "liftToAct": v, "arrivalLagMs": lag, "arrivalToActMs": app_side, "digitizer": near_d[:4]}
-            # 只记下来帮助查原因（触摸晚送到 App / App 自己慢），不豁免：每一下都要 ≤300ms。
-            # 注：模拟器每一下合成触摸都会新接一个虚拟 digitizer、用完断开（r29 压力测试 3000 下各 3000 次），所以"附近有 digitizer 断开 / 接上"说明不了什么
-            real_slow.append(rec)
+        app_tb.append(app)
+        if app < 0 or app > 300:
+            app_fail.append({"what": "toolbar " + a, "nth": n_tap, "appSideMs": app, "liftToAct": v})
+        judge_late("toolbar " + a, n_tap, lift, lrecv, app)
         if a in ("pen", "eraser") and a != cur_tool:
             want_apply += 1
             cur_tool = a
-            pend = lift
+            pend = (lift, lrecv, a, n_tap)
         else:
             pend = None
         continue
     m = re.search(r"tool applied .* wall=(\d+)", l)
     if m and pend is not None:
-        applied.append(int(m.group(1)) - pend)
+        w = int(m.group(1))
+        applied.append(w - pend[1])   # App 侧：sendEvent 收到 → 画布换上
+        if w - pend[1] > 300:
+            app_fail.append({"what": "tool applied " + pend[2], "nth": pend[3], "appSideMs": w - pend[1], "liftToApplied": w - pend[0]})
         pend = None
 want = sent.get("sentToolbar") or {}
 for k, n in want.items():
@@ -113,43 +122,53 @@ for k, n in want.items():
         bad.append(f"工具条 {k}：点了 {n} 下，网页执行了 {acts.get(k, 0)} 下")
 if not want:
     bad.append("工具条：没点（没找到按钮？）" + str(sent.get("btnFound")))
-dl, da = dist(lta), dist(applied)
-if real_slow:
-    bad.append(f"工具条：抬手→执行 超过 300ms 的 {len(real_slow)} 下：{real_slow[:3]}")
-if any(x < 0 for x in lta):
-    bad.append(f"工具条：有 {sum(x < 0 for x in lta)} 下 App 没量到抬手时刻")
-if da.get("over300"):
-    bad.append(f"笔 / 橡皮：抬手→画布换上 超过 300ms 的 {da['over300']} 下，最长 {da['max']}ms")
+dl, dapp, da = dist(lta), dist(app_tb), dist(applied)
 if want_apply and da.get("n", 0) < want_apply:
     bad.append(f"笔 / 橡皮：换了 {want_apply} 次工具，画布换工具只记到 {da.get('n', 0)} 次")
 
 # ---- 题格 ----
 cl = section("stress-cells-start", "stress-cells-end")
-clicks, missing, cur_end, got = [], 0, None, True
+clicks, app_cl, missing, cur_end, got, n_cell = [], [], 0, None, True, 0
 for l in cl:
-    m = re.search(r"touch (ended|began) finger t=(\d+)", l)
+    m = re.search(r"touch (ended|began) finger t=(\d+) recv=(\d+)", l)
     if m:
         if m.group(1) == "began":
             if cur_end is not None and not got:
                 missing += 1
             cur_end, got = None, True
         else:
-            cur_end, got = int(m.group(2)), False
+            cur_end, got = (int(m.group(2)), int(m.group(3))), False
         continue
     m = re.search(r"web click .* t=(\d+)", l)
     if m and cur_end is not None and not got:
-        clicks.append(int(m.group(1)) - cur_end)
+        n_cell += 1
+        t = int(m.group(1))
+        clicks.append(t - cur_end[0])
+        app = t - cur_end[1]
+        app_cl.append(app)
+        if app > 300:
+            app_fail.append({"what": "click (tag / cell)", "nth": n_cell, "appSideMs": app, "liftToClick": t - cur_end[0]})
+        judge_late("click (tag / cell)", n_cell, cur_end[0], cur_end[1], app)
         got = True
 if cur_end is not None and not got:
     missing += 1
-dc = dist(clicks)
+dc, dappc = dist(clicks), dist(app_cl)
 nc = sent.get("sentCells", 0)
 if not nc:
     bad.append("题格：没点（没找到题号或题格）")
 if missing:
     bad.append(f"题格 / 题号：{missing} 下触摸之后网页没收到 click")
-if dc.get("over300"):
-    bad.append(f"题格 / 题号：抬手→click 超过 300ms 的 {dc['over300']} 下，最长 {dc['max']}ms")
+
+# ---- 判定 ----
+if not beats:
+    bad.append("没有主线程心跳数据（<名字>.beats.log）：晚到的一律算 App 的失败")
+if app_fail:
+    bad.append(f"App 侧（收到→生效）超过 300ms 的 {len(app_fail)} 下：{app_fail[:4]}")
+blamed = [x for x in late_list if not x["appBlameless"]]
+if blamed:
+    bad.append(f"晚到 >250ms 且那段时间主线程心跳有 >100ms 空洞（或没数据）的 {len(blamed)} 下，算 App 的：{blamed[:4]}")
+if len(late_list) > 3:
+    bad.append(f"晚到 >250ms 的 {len(late_list)} 下，超过每个配置 3 下的上限")
 
 # ---- 被收走的触摸 ----
 setup = set(sent.get("setupResizeDrag") or [])
@@ -180,13 +199,14 @@ if cancels:
 # ---- 主线程卡顿（不判，只记）----
 gaps = [int(m.group(1)) for l in log for m in [re.search(r"main thread blocked \d+\+(\d+)", l)] if m]
 
-res = {"cfg": cfg, "pass": not bad, "bad": bad, "toolbar": {"sent": want, "acted": acts, "liftToAct": dl, "liftToApplied": da, "toolChanges": want_apply,
-                  "slow": real_slow},
-       "cells": {"sent": nc, "liftToClick": dc, "missing": missing}, "cancels": cx, "setupResizeDrag": sorted(setup),
+res = {"cfg": cfg, "pass": not bad, "bad": bad,
+       "toolbar": {"sent": want, "acted": acts, "liftToAct": dl, "appSide": dapp, "appSideApplied": da, "toolChanges": want_apply},
+       "cells": {"sent": nc, "liftToClick": dc, "appSide": dappc, "missing": missing},
+       "late": late_list, "appFail": app_fail, "beats": len(beats), "cancels": cx, "setupResizeDrag": sorted(setup),
        "mainThread": {"count": len(gaps), "maxMs": max(gaps) if gaps else 0, "over1s": sum(g >= 1000 for g in gaps)},
        "window": sent.get("window")}
 open(os.path.join(out, name + ".json"), "w", encoding="utf-8").write(json.dumps(res, ensure_ascii=False, indent=1))
-print(json.dumps({k: res[k] for k in ("cfg", "pass", "bad", "toolbar", "cells", "mainThread")}, ensure_ascii=False))
+print(json.dumps({k: res[k] for k in ("cfg", "pass", "bad", "toolbar", "cells", "late", "mainThread")}, ensure_ascii=False))
 for c in cx:
     print("CANCEL", c["line"])
     for s in c["system"]:

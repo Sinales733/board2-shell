@@ -6,8 +6,9 @@ import ObjectiveC
 /// 用来和网页那边工具条事件的时间对齐，分清"触摸结束晚到 WebKit"、"WebKit 晚派发"、"网页主线程忙"。
 enum TouchClock {
     /// 最近一下结束的触摸：墙上时间毫秒、落点、落在哪个视图上
-    private(set) static var lastEnd: (ms: Int64, x: Int, y: Int, view: String)?
-    private(set) static var lastBegin: (ms: Int64, x: Int, y: Int, view: String)?
+    /// ms：触摸自己的时间戳；recv：App 的 UIApplication.sendEvent 收到它的时刻（都是墙上毫秒）
+    private(set) static var lastEnd: (ms: Int64, x: Int, y: Int, view: String, recv: Int64)?
+    private(set) static var lastBegin: (ms: Int64, x: Int, y: Int, view: String, recv: Int64)?
     /// 系统发来的、阶段是"取消"的触摸，开机以来一共几下（云端测试要求是 0）
     private(set) static var cancelled = 0
     /// 每个手势识别器上次记下的状态：只在它进入 began / ended（认出来了）/ cancelled / failed 时记一行
@@ -32,13 +33,14 @@ enum TouchClock {
         let v = t.view.map { String(describing: type(of: $0)) } ?? "nil"
         let ms = wall(t.timestamp)
         let kind = t.type == .pencil ? "pencil" : (t.type == .direct ? "finger" : "other")
-        let rec = (ms, Int(p.x.rounded()), Int(p.y.rounded()), v)
+        let recv = Int64((Date().timeIntervalSince1970 * 1000).rounded())   // sendEvent 收到这一下的时刻
+        let rec = (ms, Int(p.x.rounded()), Int(p.y.rounded()), v, recv)
         switch t.phase {
         case .began:
             lastBegin = rec
             downAt[ObjectIdentifier(t)] = (ms, p)
             if downAt.count > 40 { downAt.removeAll() }
-            InkDiag.shared.log("touch began \(kind) t=\(ms) at \(rec.1),\(rec.2) view=\(v)")
+            InkDiag.shared.log("touch began \(kind) t=\(ms) recv=\(recv) at \(rec.1),\(rec.2) view=\(v)")
         case .moved:
             if let d = downAt.removeValue(forKey: ObjectIdentifier(t)) {
                 InkDiag.shared.log("touch first move \(kind) +\(ms - d.0)ms after down, moved \(Int(hypot(p.x - d.1.x, p.y - d.1.y)))pt at \(rec.1),\(rec.2)")
@@ -46,7 +48,7 @@ enum TouchClock {
         case .ended, .cancelled:
             downAt.removeValue(forKey: ObjectIdentifier(t))
             lastEnd = rec
-            InkDiag.shared.log("touch \(t.phase == .ended ? "ended" : "cancelled") \(kind) t=\(ms) at \(rec.1),\(rec.2) view=\(v)")
+            InkDiag.shared.log("touch \(t.phase == .ended ? "ended" : "cancelled") \(kind) t=\(ms) recv=\(recv) at \(rec.1),\(rec.2) view=\(v)")
             if t.phase == .cancelled {
                 cancelled += 1
                 let line = "native touch cancelled #\(cancelled) \(kind) t=\(ms) at \(rec.1),\(rec.2) view=\(v) grs=[\(grs(t))]"
@@ -220,5 +222,36 @@ enum StallSampler {
         }
         free(syms)
         return out.prefix(40).joined(separator: " | ")
+    }
+}
+
+/// 主线程存活看门狗（只在云端测试模式；从启动起一直跑，不看草稿纸开没开）：
+/// 后台线程每 50 毫秒往主线程丢一个任务，记下主线程真正执行它的时刻（墙上毫秒），每秒追加写到 <名字>.beats.log。
+/// 用来判断"触摸晚送到 App"的那段时间里 App 主线程是不是活着（相邻两次执行间隔大，就是主线程自己卡了）。
+enum MainWatch {
+    private static let lock = NSLock()
+    private static var buf: [Int64] = []
+    private static var started = false
+    static func start() {
+        guard ShotMode.isOn, !started else { return }
+        started = true
+        let th = Thread {
+            var n = 0
+            while true {
+                Thread.sleep(forTimeInterval: 0.05)
+                DispatchQueue.main.async {
+                    let t = Int64((Date().timeIntervalSince1970 * 1000).rounded())
+                    lock.lock(); buf.append(t); lock.unlock()
+                }
+                n += 1
+                if n % 20 == 0 {
+                    lock.lock(); let out = buf; buf.removeAll(keepingCapacity: true); lock.unlock()
+                    if !out.isEmpty { ShotMode.hostWrite(".beats.log", out.map(String.init).joined(separator: "\n"), append: true) }
+                }
+            }
+        }
+        th.name = "b2-main-watch"
+        th.qualityOfService = .userInteractive
+        th.start()
     }
 }

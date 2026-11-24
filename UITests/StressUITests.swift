@@ -88,7 +88,7 @@ final class StressUITests: XCTestCase {
         var cs: [String: XCUICoordinate] = [:]
         for k in order { if let c = coord(btns[k] as? [Double]) { cs[k] = c } }
         var sent: [String: Int] = [:]
-        let rounds = 300
+        let rounds = windowed ? 100 : 300   // 窗口模式每下要等 SpringBoard 空闲 1.5–1.8 秒：样本量是全屏的三分之一（主会话裁定）
         if cs.count == order.count {
             for _ in 0..<rounds {
                 for k in order {
