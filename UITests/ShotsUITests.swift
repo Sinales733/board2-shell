@@ -161,13 +161,13 @@ final class ShotsUITests: XCTestCase {
         func tapRect(_ r: [Double]?) -> Bool { guard let c = center(r) else { return false }; at(c.0, c.1).tap(); return true }
         func lastTap() -> [String: Any] { native()["lastTap"] as? [String: Any] ?? [:] }
         /// 点工具条上一个按钮（只点一次），0.5 秒后看结果；断言这一下 抬手→执行 ≤300 毫秒、纸上没多笔画
-        func tool1(_ k: String, _ label: String, expect: () -> Bool) {
+        func tool1(_ k: String, _ label: String, keepsCount: Bool = true, expect: () -> Bool) {
             let c0 = count(), before = lastTap()["act"] as? Int ?? 0
             let ok = tapRect(wbtn(k))
             settle()
             let t = lastTap(), act = t["act"] as? Int ?? 0, lta = t["liftToAct"] as? Int ?? -1
             let fresh = act != before && (t["a"] as? String) == k
-            step(label, ok && fresh && lta >= 0 && lta <= 300 && expect() && count() == c0,
+            step(label, ok && fresh && lta >= 0 && lta <= 300 && expect() && (!keepsCount || count() == c0),
                  "tapped=\(ok) fresh=\(fresh) lift→act=\(lta)ms count \(c0)->\(count())")
         }
         let tgEl = app.buttons.matching(identifier: "b2draftToggle").firstMatch
@@ -206,9 +206,10 @@ final class ShotsUITests: XCTestCase {
         func switchTo(_ cell: String, _ id: String) -> String {
             var log: [String] = []
             if isOpen() { log.append("close=\(tapToggle())"); settle(1.2) }
-            log.append("tag=\(tapRect(web()["tag"] as? [Double]))"); settle(1.5)
+            if (web()["drawer"] as? Bool) != true { log.append("tag=\(tapRect(web()["tag"] as? [Double]))"); settle(1.5) } else { log.append("drawer already open") }
             let cr = (web()["cells"] as? [String: Any])?[cell] as? [Double]
             log.append("cell=\(tapRect(cr))"); settle(2.0)
+            if (web()["drawer"] as? Bool) == true { log.append("drawer still open"); cmd("closeall") }
             log.append("open=\(tapToggle())"); settle(1.5)
             log.append("id=\(web()["id"] ?? "nil")")
             return log.joined(separator: " ") + ((web()["id"] as? String) == id ? "" : " WRONG")
@@ -250,7 +251,7 @@ final class ShotsUITests: XCTestCase {
         settle(1.5)
         let post = prints()
         let untouched = pre.count == 5 && post.contains(pre[0]) && post.contains(pre[4])
-        let cut = pre.count == 5 && !post.contains(pre[1]) && !post.contains(pre[2]) && post.count > 5
+        let cut = pre.count == 5 && !post.contains(pre[1]) && !post.contains(pre[2]) && !post.contains(pre[3])
         step("eraser cuts strokes 2-4, strokes 1 and 5 unchanged", untouched && cut, "before \(pre.count) after \(post.count) untouched=\(untouched) cut=\(cut)")
         if o == "portrait" {
             let shot1 = XCUIScreen.main.screenshot().pngRepresentation
@@ -260,10 +261,10 @@ final class ShotsUITests: XCTestCase {
             var skip: [[Double]] = [[ex - 30, 0, 60, H0]]
             if let r = web()["dtool"] as? [Double] { skip.append(r) }
             if let r = native()["toggle"] as? [Double] { skip.append(r) }
-            let diff = pixelDiff(shot0, shot1, W0, skip)
-            step("eraser: pixels outside 30pt of the eraser path identical", diff == 0, "differing pixels=\(diff)")
+            let (diff, box) = pixelDiff(shot0, shot1, W0, skip, save: outDir.appendingPathComponent("erase-diff-\(o).png"))
+            step("eraser: pixels outside 30pt of the eraser path identical", diff == 0, "differing pixels=\(diff) in box(pt)=\(box)")
         }
-        tool1("undo", "toolbar undo restores erase") { prints() == pre }
+        tool1("undo", "toolbar undo restores erase", keepsCount: false) { prints() == pre }
         tool1("pen", "toolbar pen") { tool().hasPrefix("ink") }
         // 颜色：先换成蓝，再换成红（点颜色后不等，马上点色块）
         for c in ["blue", "red"] {
@@ -277,7 +278,7 @@ final class ShotsUITests: XCTestCase {
         write("red stroke", (z.x0, z.ys[0] + 40), (z.x1, z.ys[0] + 50))
         step("new stroke is red", (native()["lastColor"] as? String) == "red", "lastColor=\(native()["lastColor"] ?? "nil")")
         let c6 = count()
-        tool1("undo", "toolbar undo removes last stroke") { waitCount(c6 - 1, 1) == c6 - 1 }
+        tool1("undo", "toolbar undo removes last stroke", keepsCount: false) { waitCount(c6 - 1, 1) == c6 - 1 }
 
         // ---- 只认笔（真机规则）：手指点工具条、点纸、挪纸、缩放 ----
         cmd("finger auto")
@@ -318,7 +319,8 @@ final class ShotsUITests: XCTestCase {
             settle(1.5)
             let d1 = web()["dtool"] as? [Double] ?? d0, opened = web()["aboveOn"] as? [String] ?? []
             step("drag grip moves toolbar, no stroke, nothing opened below", d1[1] - d0[1] > 60 && count() == c && opened.isEmpty,
-                 "toolbar top \(Int(d0[1]))->\(Int(d1[1])) count \(c)->\(count()) opened=\(opened)")
+                 "toolbar top \(Int(d0[1]))->\(Int(d1[1])) count \(c)->\(count()) opened=\(opened) clicks=\(web()["lastClicks"] ?? "nil") toolClk=\(web()["toolClk"] ?? "nil")")
+            if !opened.isEmpty { cmd("closeall") }   // 失败时收掉，不连累后面
             if let g2 = center(wbtn("grip")) { drag(g2, (g2.0, g2.1 - 150), velocity: 300, press: 0.2, hold: 0.2); settle(1.0) }
         } else { step("drag grip moves toolbar, no stroke, nothing opened below", false, "no grip") }
 
@@ -335,20 +337,22 @@ final class ShotsUITests: XCTestCase {
         if let c = center(wbtn("clear")) {   // 按住清空，滑出去再松手：不算
             at(c.0, c.1).press(forDuration: 0.3, thenDragTo: at(c.0 - 160, c.1), withVelocity: 300, thenHoldForDuration: 0.1)
             settle()
-            step("press clear, slide out, release: nothing happens", (web()["clearSure"] as? Bool) == false && count() == n0, "sure=\(web()["clearSure"] ?? "nil") count=\(count())")
+            step("press clear, slide out, release: nothing happens", (web()["clearSure"] as? Bool) == false && count() == n0,
+                 "sure=\(web()["clearSure"] ?? "nil") count=\(count()) toolEvs=\(web()["toolEvs"] ?? "nil") toolClk=\(web()["toolClk"] ?? "nil")")
+            if (web()["clearSure"] as? Bool) == true { Thread.sleep(forTimeInterval: 4.5) }   // 失败时让确认态自己过期，不连累后面
         }
         tool1("clear", "clear tap 1") { (web()["clearSure"] as? Bool) == true }
-        tool1("clear", "clear tap 2: native and old draft both 0") { waitCount(0, 1) == 0 && v2() == 0 }
+        tool1("clear", "clear tap 2: native and old draft both 0", keepsCount: false) { waitCount(0, 1) == 0 && v2() == 0 }
         cmd("finger on")
         write("stroke after clear", (z.x0, z.ys[2]), (z.x1, z.ys[2] + 10))
         tool1("clear", "second clear tap 1") { (web()["clearSure"] as? Bool) == true }
-        tool1("clear", "second clear tap 2") { waitCount(0, 1) == 0 }
-        tool1("undo", "undo #1: back to the stroke written after first clear") { waitCount(1, 1) == 1 && v2() == 0 }
-        tool1("undo", "undo #2: that stroke undone") { waitCount(0, 1) == 0 && v2() == 0 }
-        tool1("undo", "undo #3: first clear undone, old draft back") { waitCount(n0, 1) == n0 && v2() == v2a }
+        tool1("clear", "second clear tap 2", keepsCount: false) { waitCount(0, 1) == 0 }
+        tool1("undo", "undo #1: back to the stroke written after first clear", keepsCount: false) { waitCount(1, 1) == 1 && v2() == 0 }
+        tool1("undo", "undo #2: that stroke undone", keepsCount: false) { waitCount(0, 1) == 0 && v2() == 0 }
+        tool1("undo", "undo #3: first clear undone, old draft back", keepsCount: false) { waitCount(n0, 1) == n0 && v2() == v2a }
         // 清空后马上杀掉重启
         tool1("clear", "clear before kill tap 1") { true }
-        tool1("clear", "clear before kill tap 2") { waitCount(0, 1) == 0 }
+        tool1("clear", "clear before kill tap 2", keepsCount: false) { waitCount(0, 1) == 0 }
         app.terminate()
         launch()
         _ = tapToggle(); settle(1.5)
@@ -358,9 +362,11 @@ final class ShotsUITests: XCTestCase {
         _ = http("_resetdrafts")
         app.terminate(); launch(); _ = tapToggle(); settle(1.5)
         step("old draft restored on server for offline test", v2() == 2, "v2=\(v2())")
+        _ = switchTo("b", "2009-02"); _ = switchTo("a", "2009-01")   // 先在线打开过 2009-02：离线时只能打开 iPad 上存过的题
+        settle(1.0)
         _ = http("_offline")
         tool1("clear", "offline clear tap 1") { true }
-        tool1("clear", "offline clear tap 2") { v2() == 0 }
+        tool1("clear", "offline clear tap 2", keepsCount: false) { v2() == 0 }
         let sw1 = switchTo("b", "2009-02"), sw2 = switchTo("a", "2009-01")
         step("offline: switch away and back by real taps, old draft stays cleared", v2() == 0 && !sw1.contains("WRONG") && !sw2.contains("WRONG"), "\(sw1) | \(sw2) v2=\(v2())")
         _ = http("_online")
@@ -403,7 +409,7 @@ final class ShotsUITests: XCTestCase {
         // ---- 工具条撤销后杀掉重启：和撤销后一样 ----
         z = zone()
         write("stroke before restart", (z.x0, z.ys[4]), (z.x1, z.ys[4] + 10))
-        tool1("undo", "undo before restart") { waitCount(pa.count, 1) == pa.count }
+        tool1("undo", "undo before restart", keepsCount: false) { waitCount(pa.count, 1) == pa.count }
         let afterUndo = prints(), v2b = v2()
         Thread.sleep(forTimeInterval: 1.5)
         app.terminate()
@@ -438,8 +444,8 @@ final class ShotsUITests: XCTestCase {
     }
 
     /// 两张截图（PNG）逐像素比，跳过 skip 里的矩形（屏幕点坐标），返回不同的像素个数
-    private func pixelDiff(_ a: Data, _ b: Data, _ W: Double, _ skip: [[Double]]) -> Int {
-        guard let ia = UIImage(data: a)?.cgImage, let ib = UIImage(data: b)?.cgImage, ia.width == ib.width, ia.height == ib.height else { return -1 }
+    private func pixelDiff(_ a: Data, _ b: Data, _ W: Double, _ skip: [[Double]], save: URL) -> (Int, [Int]) {
+        guard let ia = UIImage(data: a)?.cgImage, let ib = UIImage(data: b)?.cgImage, ia.width == ib.width, ia.height == ib.height else { return (-1, []) }
         func rgba(_ i: CGImage) -> [UInt8] {
             var px = [UInt8](repeating: 0, count: i.width * i.height * 4)
             let ctx = CGContext(data: &px, width: i.width, height: i.height, bitsPerComponent: 8, bytesPerRow: i.width * 4,
@@ -448,16 +454,24 @@ final class ShotsUITests: XCTestCase {
             return px
         }
         let pa = rgba(ia), pb = rgba(ib), s = Double(ia.width) / W
-        var n = 0
+        var n = 0, bx0 = Int.max, by0 = Int.max, bx1 = -1, by1 = -1
+        var mark = [UInt8](repeating: 0, count: ia.width * ia.height * 4)
         for y in 0..<ia.height {
             for x in 0..<ia.width {
                 let px = Double(x) / s, py = Double(y) / s
                 if skip.contains(where: { px >= $0[0] && px <= $0[0] + $0[2] && py >= $0[1] && py <= $0[1] + $0[3] }) { continue }
                 let i = (y * ia.width + x) * 4
-                if pa[i] != pb[i] || pa[i + 1] != pb[i + 1] || pa[i + 2] != pb[i + 2] { n += 1 }
+                if pa[i] != pb[i] || pa[i + 1] != pb[i + 1] || pa[i + 2] != pb[i + 2] {
+                    n += 1; bx0 = min(bx0, x); by0 = min(by0, y); bx1 = max(bx1, x); by1 = max(by1, y)
+                    mark[i] = 255; mark[i + 3] = 255
+                }
             }
         }
-        return n
+        // 不同的像素画成红点存一张图，方便看是哪里变了
+        if n > 0, let ctx = CGContext(data: &mark, width: ia.width, height: ia.height, bitsPerComponent: 8, bytesPerRow: ia.width * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+           let img = ctx.makeImage() { try? UIImage(cgImage: img).pngData()?.write(to: save) }
+        return (n, n > 0 ? [Int(Double(bx0) / s), Int(Double(by0) / s), Int(Double(bx1) / s), Int(Double(by1) / s)] : [])
     }
 
     func testShots() {

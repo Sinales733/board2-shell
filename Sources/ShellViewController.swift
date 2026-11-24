@@ -840,7 +840,7 @@ extension ShellViewController {
             case "drawer":
                 // 选题抽屉打开（点左上角题号），看抽屉顶上那排小图标里的"设置"入口
                 // 今日题单是 2000 道（ci/fixture/data/today.json）；截图参数下网页不读记录，这里在内存里补上真实量级的"做了 1234、对 888、旗 99"（不存盘）
-                let big = "try{var S=Board2,d=S.api.today(),L=S.today.list.slice(2);for(var i=0;i<1234;i++)S.ans[L[i]]={date:d,correct:i<888,fin:true};for(var j=0;j<33;j++)S.flags[L[j]]=['a','b','c'];}catch(e){}"
+                let big = "try{var S=Board2,d=S.api.today(),L=S.today.list.slice(2);S.ans={};for(var i=0;i<1234;i++)S.ans[L[i]]={date:d,correct:i<888,fin:true};for(var j=0;j<33;j++)S.flags[L[j]]=['a','b','c'];}catch(e){}"
                 self.webView.evaluateJavaScript(big + ";(document.getElementById('tag')||{click:function(){}}).click()", completionHandler: nil)
                 // 顶上那排小图标和今日三个数、面包屑有没有压在一起、数字有没有被截断（check_selftest.py 检查）
                 let probe = """
@@ -909,7 +909,7 @@ extension ShellViewController {
         var cl=q('[data-a="clear"]'),su=q('.dsure');
         return JSON.stringify({id:d&&d.D.id,open:d&&d.D.open,tool:d&&d.ui.tool,color:d&&d.ui.color,finger:d&&!!d.ui.finger,side:d&&d.ui.side,
         V:d&&[d.V.x,d.V.y,d.V.z],W:innerWidth,H:innerHeight,q:window.Board2&&Board2.id,opt:r(o),clicks:window.__b2clicks,
-        v2:d&&d.doc?d.doc.s.length:-1,clk:window.__b2clk,tag:r(document.getElementById('tag')),cells:{a:r(document.querySelector('#nv .pane:not(.out) .cell[data-id="2009-01"]')),b:r(document.querySelector('#nv .pane:not(.out) .cell[data-id="2009-02"]'))},drawer:!!(document.getElementById('drawer')&&document.getElementById('drawer').classList.contains('on')),lastClicks:window.__b2lc,perf:window.__b2perf?{gaps:__b2perf.gaps,slow:__b2perf.slow}:null,aboveOn:['#fbp','#drawer','#sheet','#weak','#akPg','#akHere','.toast'].filter(function(k){var e=document.querySelector(k);return e&&e.classList.contains('on');}),stem:r(document.getElementById('stem')),dtoolShown:!!(t&&t.offsetWidth),dtool:r(t),draftBtn:r(document.getElementById('draftBtn')),
+        v2:d&&d.doc?d.doc.s.length:-1,clk:window.__b2clk,tag:r(document.getElementById('tag')),cells:{a:r(document.querySelector('#nv .pane:not(.out) .cell[data-id="2009-01"]')),b:r(document.querySelector('#nv .pane:not(.out) .cell[data-id="2009-02"]'))},drawer:!!(document.getElementById('drawer')&&document.getElementById('drawer').classList.contains('on')),lastClicks:window.__b2lc,toolEvs:window.__b2evs,toolClk:window.__b2toolclk,perf:window.__b2perf?{gaps:__b2perf.gaps,slow:__b2perf.slow}:null,aboveOn:['#fbp','#drawer','#sheet','#weak','#akPg','#akHere','.toast'].filter(function(k){var e=document.querySelector(k);return e&&e.classList.contains('on');}),stem:r(document.getElementById('stem')),dtoolShown:!!(t&&t.offsetWidth),dtool:r(t),draftBtn:r(document.getElementById('draftBtn')),
         clearSure:!!(cl&&cl.classList.contains('sure')),sureShown:!!(su&&su.classList.contains('on')),undoDisabled:!!(q('[data-a="undo"]')||{}).disabled,
         btn:{grip:r(q('[data-a="grip"]')),pen:r(q('[data-a="pen"]')),eraser:r(q('[data-a="eraser"]')),color:r(q('[data-a="color"]')),undo:r(q('[data-a="undo"]')),
         clear:r(cl),sure:r(su),zoom:r(q('[data-a="zoom"]')),more:r(q('[data-a="more"]')),close:r(q('[data-a="close"]')),red:r(q('.dpal [data-c="red"]')),blue:r(q('.dpal [data-c="blue"]')),finger:r(q('[data-a="finger"]'))},

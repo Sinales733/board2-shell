@@ -628,6 +628,8 @@ final class InkLayer: NSObject {
             for p in pts { mix(Double(p.location.x)); mix(Double(p.location.y)); mix(Double(p.size.width)); mix(p.timeOffset) }
             let t = st.transform
             for x in [t.a, t.b, t.c, t.d, t.tx, t.ty] { mix(Double(x)) }
+            // 位图橡皮擦一笔时可能不改它的点、而是给它加遮罩（mask）：遮罩也算进指纹
+            if let m = st.mask { let b = m.bounds; for x in [b.minX, b.minY, b.width, b.height] { mix(Double(x)) } } else { mix(-1) }
             prints.append(String(format: "%016llx-%d", h, pts.count))
         }
         let tf = toggle.frame

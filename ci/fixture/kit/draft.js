@@ -626,10 +626,12 @@
   const wallOf = (e) => Math.round(performance.timeOrigin + e.timeStamp);
   ['touchstart', 'pointerdown', 'touchend', 'pointerup', 'click'].forEach((n) => tool.addEventListener(n, (e) => {
     if (n === 'touchstart' || (n === 'pointerdown' && !evs.some((x) => x.startsWith('ts:')))) evs = [];
-    evs.push((n === 'touchstart' ? 'ts' : n === 'pointerdown' ? 'pd' : n === 'touchend' ? 'te' : n === 'pointerup' ? 'pu' : 'cl') + ':' + wallOf(e) + '/' + Date.now());
+    evs.push((n === 'touchstart' ? 'ts' : n === 'pointerdown' ? 'pd' : n === 'touchend' ? 'te' : n === 'pointerup' ? 'pu' : 'cl') + ':' + wallOf(e) + '/' + Date.now() + '@' + Math.round(e.clientX || (e.changedTouches && e.changedTouches[0] ? e.changedTouches[0].clientX : 0)));
+    window.__b2evs = evs;
   }, { capture: true, passive: true }));
   const btnOf = (t) => (t && t.closest ? t.closest('[data-c], [data-a]') : null);
-  tool.addEventListener('pointerdown', (e) => { downEl = btnOf(e.target); downAt = Date.now(); upDone = 0; }, true);
+  let touchPending = 0;   // 手指 / 笔在工具条上按下过：浏览器随后在按下点补的那一个 click 不算（实测 touchend 拦不住它）
+  tool.addEventListener('pointerdown', (e) => { downEl = btnOf(e.target); downAt = Date.now(); upDone = 0; if (e.pointerType !== 'mouse') touchPending = performance.now(); }, true);
   tool.addEventListener('pointerup', (e) => {
     const el = btnOf(e.target);   // 触摸有隐式捕获：手指滑出去以后 target 还是按下的那颗按钮，所以要看抬起点
     if (!el || el !== downEl || el.dataset.a === 'grip' || el.dataset.a === 'alpha') { downEl = null; return; }
@@ -650,6 +652,7 @@
   ['pointerup', 'pointercancel'].forEach((n) => addEventListener(n, () => { if (toolTouch) { toolTouch = false; toolUpAt = performance.now(); } }, true));
   addEventListener('pointerdown', (e) => { if (!(e.target.closest && e.target.closest('#dtool'))) { toolTouch = false; toolUpAt = -1e9; } }, true);
   document.addEventListener('click', (e) => {
+    if (NI()) { const L = window.__b2toolclk = window.__b2toolclk || []; L.push(Math.round(performance.now() - toolUpAt) + 'ms@' + Math.round(Math.hypot(e.clientX - toolDownXY[0], e.clientY - toolDownXY[1])) + 'px'); if (L.length > 8) L.shift(); }   // 诊断：这个 click 离工具条抬起多久、离按下点多远
     if (!(toolTouch || performance.now() - toolUpAt < 600)) return;
     if (e.target.closest && e.target.closest('#dtool')) return;
     if (Math.hypot(e.clientX - toolDownXY[0], e.clientY - toolDownXY[1]) > 30) return;
@@ -657,7 +660,12 @@
   }, true);
   /* 清空确认气泡：触摸落在它上面不传到下面的页面、也不清空 */
   { const su = tool.querySelector('.dsure'); ['pointerdown', 'pointerup', 'click', 'touchstart'].forEach((n) => su.addEventListener(n, (e) => { e.stopPropagation(); if (n !== 'touchstart' && n !== 'pointerdown') e.preventDefault(); })); }
-  tool.addEventListener('click', (e) => { if (upDone && performance.now() - upDone < 600) { upDone = 0; return; } upDone = 0; act(e); });
+  tool.addEventListener('click', (e) => {
+    if (touchPending && performance.now() - touchPending < 2500) { touchPending = 0; return; }   // 触摸补来的：只吃这一个，之后键盘、读屏的点击照常
+    touchPending = 0;
+    if (upDone && performance.now() - upDone < 600) { upDone = 0; return; }
+    upDone = 0; act(e);
+  });
   function act(e) {
     const c = e.target.closest('[data-c]'); if (c) { ui.color = c.dataset.c; ui.tool = 'pen'; saveUI(); paintTool(); closePops(); return; }
     const b = e.target.closest('[data-a]'); if (!b || b.disabled) return;
