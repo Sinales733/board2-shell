@@ -127,7 +127,8 @@ for o in ("portrait", "landscape"):
     cs = (inkw.get("cancels") or {}).get(o)
     check(isinstance(cs, dict), f"窗口模式 被取消的触摸 {o}：没有统计")
     if isinstance(cs, dict):
-        print(f"窗口模式 被取消的触摸 {o}：原生 {cs.get('nativeTouchCancelled')}、网页 pointercancel {cs.get('webPointerCancel')}、touchcancel {cs.get('webTouchCancel')}")
+        print(f"窗口模式 被取消的触摸 {o}：原生 {cs.get('nativeTouchCancelled')}、网页 pointercancel {cs.get('webPointerCancel')}、touchcancel {cs.get('webTouchCancel')}"
+              f"（另有测试拖窗口缩放把手时被系统收走的 {len(cs.get('setupResizeDrag') or [])} 条，不计入：{(cs.get('setupResizeDrag') or [])[:3]}）")
 extraw = [k for k in stw if k.split(": ", 1)[-1] not in names + [WN]]
 check(not extraw, f"窗口模式：名单外的步骤 {extraw}")
 

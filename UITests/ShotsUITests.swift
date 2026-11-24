@@ -136,6 +136,11 @@ final class ShotsUITests: XCTestCase {
         }
         let cancelURL = outDir.appendingPathComponent(name + ".cancel.log")
         try? FileManager.default.removeItem(at: cancelURL)
+        func cancelLines() -> [String] {
+            ((try? String(contentsOf: cancelURL, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init).filter { !$0.isEmpty }
+        }
+        /// 测试自己拖窗口缩放把手时系统收走的那一下触摸（窗口模式那一遍的准备动作）：单独记，不算进"不许有被取消的触摸"
+        var setupCancels: [String] = []
         // 不带 -b2at：页面不进"安静模式"，顶上一排按钮（含网页的草稿纸按钮）、题号、选项都和正式页一样
         func launch() {
             XCUIDevice.shared.orientation = ori
@@ -283,8 +288,10 @@ final class ShotsUITests: XCTestCase {
         if windowedPass && !windowed {
             // 窗口模式那一遍但 App 是全屏：拖窗口右下角的缩放把手往里收，让它变成窗口（窗口化 App 模式下全屏的 App 也画着这个把手）
             let wc = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1))
+            let before = cancelLines().count
             wc.withOffset(CGVector(dx: -6, dy: -6)).press(forDuration: 0.6, thenDragTo: wc.withOffset(CGVector(dx: -110, dy: -130)))
             Thread.sleep(forTimeInterval: 2.0)
+            setupCancels = Array(cancelLines().dropFirst(before))
             (windowed, wnote) = isWindowed(); tried.append("drag resize corner→\(windowed ? "windowed" : "still full")")
             (W0, H0) = wh()   // 窗口变了，网页的宽高跟着变
         }
@@ -538,10 +545,11 @@ final class ShotsUITests: XCTestCase {
         step("pencil double tap handler: switches once, toolbar follows, logged", tb != ta && tool().hasPrefix(ta == "eraser" ? "eraser" : "ink") && logged,
              "web tool \(tb)->\(ta) native=\(tool())")
         // 被取消的触摸：整个方向跑下来（含几次重启）一次都不许有
-        let cl = ((try? String(contentsOf: cancelURL, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init).filter { !$0.isEmpty }
+        let cl = Array(cancelLines().dropFirst(0).filter { !setupCancels.contains($0) })
         let nNative = cl.filter { $0.hasPrefix("native touch cancelled") }.count
         let nPC = cl.filter { $0.hasPrefix("web pointercancel") }.count, nTC = cl.filter { $0.hasPrefix("web touchcancel") }.count
-        cancelStats[o] = ["nativeTouchCancelled": nNative, "webPointerCancel": nPC, "webTouchCancel": nTC, "lines": Array(cl.prefix(30))]
+        cancelStats[o] = ["nativeTouchCancelled": nNative, "webPointerCancel": nPC, "webTouchCancel": nTC, "lines": Array(cl.prefix(30)),
+                          "setupResizeDrag": setupCancels]   // 测试拖窗口缩放把手那一下被系统收走的记录（不计入）
         step("no cancelled touches (native touchesCancelled, web pointercancel/touchcancel)", cl.isEmpty,
              "native=\(nNative) pointercancel=\(nPC) touchcancel=\(nTC) \(cl.prefix(6).joined(separator: " | "))")
         app.terminate()
