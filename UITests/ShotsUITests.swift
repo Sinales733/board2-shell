@@ -200,7 +200,7 @@ final class ShotsUITests: XCTestCase {
         }
         let webEl = app.webViews.firstMatch
         // 点的坐标按 App 根元素（窗口）算：网页视图铺满窗口，位置一样；不用网页视图元素，省掉每一下之前查整棵网页无障碍树
-        let base: XCUIElement = app
+        let base: XCUIElement = app.windows.firstMatch
         func at(_ x: Double, _ y: Double) -> XCUICoordinate {
             let (W, H) = wh()
             return base.coordinate(withNormalizedOffset: CGVector(dx: x / W, dy: y / H))
@@ -324,7 +324,7 @@ final class ShotsUITests: XCTestCase {
             (windowed, wnote) = isWindowed(); tried.append(windowed ? "still windowed" : "full")
         }
         let fsNote = wnote + " tried=\(tried) app-reported screen=\(scr) web=\(W0)x\(H0)"
-        if windowedPass && !windowed {
+        for _ in 0..<2 where windowedPass && !windowed {
             // 窗口模式那一遍但 App 是全屏：拖窗口右下角的缩放把手往里收，让它变成窗口（窗口化 App 模式下全屏的 App 也画着这个把手）
             let wc = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1))
             let before = cancelLines().count
@@ -436,6 +436,9 @@ final class ShotsUITests: XCTestCase {
         tool1("eraser", "finger tap on toolbar under pencilOnly", applies: true) { tool().hasPrefix("eraser") }
         tool1("pen", "finger tap pen under pencilOnly", applies: true) { tool().hasPrefix("ink") }
         _ = tapRect([z.x0 + 50, z.ys[2] + 30, 20, 20]); settle()
+        step("finger tap on paper: canvas never first responder, no system edit menu",
+             (native()["canvasFR"] as? Bool) == false && (native()["editMenus"] as? Int) == 0,
+             "canvasFR=\(native()["canvasFR"] ?? "nil") editMenus=\(native()["editMenus"] ?? "nil") removed=\(native()["editMenusRemoved"] ?? "nil")")
         step("finger tap on paper: no stroke, toolbar still there", count() == kept && (web()["dtoolShown"] as? Bool) == true, "count \(kept)->\(count())")
         let v0 = nview()
         drag((z.x0 + 40, z.ys[2]), (z.x0 + 140, z.ys[2] + 90), velocity: 200, press: 0.05, hold: 0.8)

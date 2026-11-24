@@ -22,6 +22,7 @@ toolbar undo removes last stroke
 pencilOnly by default
 finger tap on toolbar under pencilOnly
 finger tap pen under pencilOnly
+finger tap on paper: canvas never first responder, no system edit menu
 finger tap on paper: no stroke, toolbar still there
 one finger pans paper
 pinch zoom: no stroke

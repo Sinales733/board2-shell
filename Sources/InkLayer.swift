@@ -348,6 +348,22 @@ final class InkLayer: NSObject {
 
     // MARK: - 画布、工具盘的显示和收起
 
+    /// PencilKit 的选择交互在手指点纸时会弹系统编辑菜单（选择 / 粘贴），弹之前同步读剪贴板（XPC）、排菜单（r30 抓到的调用栈：
+    /// PKSelectionInteraction → UIEditMenuInteraction → UICollectionView / PBServerConnection，主线程卡 0.5–1.6 秒）。草稿纸用不到这个菜单：拿掉。
+    private(set) var editMenusRemoved = 0
+    private func removeEditMenus() {
+        var stack: [UIView] = [canvas]
+        while let v = stack.popLast() {
+            for i in v.interactions where i is UIEditMenuInteraction { v.removeInteraction(i); editMenusRemoved += 1 }
+            stack.append(contentsOf: v.subviews)
+        }
+    }
+    var editMenuCount: Int {
+        var n = 0, stack: [UIView] = [canvas]
+        while let v = stack.popLast() { n += v.interactions.filter { $0 is UIEditMenuInteraction }.count; stack.append(contentsOf: v.subviews) }
+        return n
+    }
+
     /// 预热：给画布换一次位图橡皮再换回来（启动时做一次）
     private var warmed = false
     private(set) var warmInfo: [String: Any] = [:]
@@ -365,6 +381,7 @@ final class InkLayer: NSObject {
     private func openUI() {
         InkDiag.shared.touchLogging = true
         MainBeat.start()
+        removeEditMenus()
         canvas.isHidden = false
         tellWebView()
         tellUndo()
@@ -377,8 +394,9 @@ final class InkLayer: NSObject {
         tellUndo()
         let rc = canvas.isFirstResponder ? canvas.resignFirstResponder() : true
         canvas.isHidden = true
-        // 第一响应者交回网页（不然收起后点网页的第一下会先被拿去换第一响应者）
-        let w = webView?.becomeFirstResponder() ?? false
+        // 画布不当第一响应者（InkCanvas.canBecomeFirstResponder = false），网页一直是，不用再交回去。
+        // 以前每写一笔、每次收起都 webView.becomeFirstResponder()：会让 WebKit 重新拉起键盘那一套（r30 抓到的调用栈：UIKeyboardSceneDelegate…，最长卡 7.3 秒）
+        let w = webView?.isFirstResponder ?? false
         InkDiag.shared.touchLogging = false
         MainBeat.stop()
         InkDiag.shared.log("canvas closed strokes=\(canvas.drawing.strokes.count) resign canvas=\(rc) web first=\(w)")
@@ -748,7 +766,7 @@ final class InkLayer: NSObject {
         let tf = toggle.frame
         return ["count": canvas.drawing.strokes.count, "strokes": strokes, "prints": prints, "open": isOpen, "id": id ?? NSNull(),
                 "view": [Double(v.x), Double(v.y), Double(v.z)], "tool": InkLayer.toolName(canvas.tool),
-                "color": colorName, "canUndo": canvas.undoManager?.canUndo ?? false, "lastTap": lastTap, "toolApply": lastToolApply, "lastRects": lastRects, "beat": MainBeat.running, "maskOverlapOK": maskOverlapOK(), "passOverlap": passOverlap, "warm": warmInfo, "variant": ShotVariant.name, "pencilLogged": InkDiag.shared.contains("pencil double tap -> web"), "mainGaps": MainBeat.gaps, "mainSlow": MainBeat.slow, "lastColor": lastStrokeColor(),
+                "color": colorName, "canUndo": canvas.undoManager?.canUndo ?? false, "lastTap": lastTap, "canvasFR": canvas.isFirstResponder, "editMenus": editMenuCount, "editMenusRemoved": editMenusRemoved, "toolApply": lastToolApply, "lastRects": lastRects, "beat": MainBeat.running, "maskOverlapOK": maskOverlapOK(), "passOverlap": passOverlap, "warm": warmInfo, "variant": ShotVariant.name, "pencilLogged": InkDiag.shared.contains("pencil double tap -> web"), "mainGaps": MainBeat.gaps, "mainSlow": MainBeat.slow, "lastColor": lastStrokeColor(),
                 "webBtn": [Double(webBtn.minX), Double(webBtn.minY), Double(webBtn.width), Double(webBtn.height)], "covered": webBtnCovered,
                 "passRects": canvas.passRects.map { [Double($0.minX), Double($0.minY), Double($0.width), Double($0.height)] },
                 "screen": [Double(host?.bounds.width ?? 0), Double(host?.bounds.height ?? 0)],
@@ -911,6 +929,8 @@ extension InkLayer: PKCanvasViewDelegate {
 /// 画布：网页"纸上面的那几层"（工具条和它的小弹层、问答面板、抽屉、提示条……）那几块不接触摸，让给下面的网页。
 final class InkCanvas: PKCanvasView {
     var passRects: [CGRect] = []
+    /// 不当第一响应者：画笔不需要它（只有工具盘、编辑菜单要）；当了就会和网页来回抢，每抢一次 WebKit 要重新拉起键盘那一套
+    override var canBecomeFirstResponder: Bool { false }
     /// 笔正按在纸上写（画画手势开始到结束）：这段时间里落在让出区（工具条等）的手指不给网页，当掌根；笔一抬立刻恢复
     var penDown = false
     private var lastLogged: TimeInterval = -1

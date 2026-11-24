@@ -138,7 +138,7 @@ enum MainBeat {
                 let rec = "\(TouchClock.wall(last))+\(Int(gap * 1000))(after \(doing))"
                 gaps.append(rec); if gaps.count > 12 { gaps.removeFirst() }
                 InkDiag.shared.log("main thread blocked \(rec)")
-                if let st = StallSampler.take() { InkDiag.shared.log("stall stack \(TouchClock.wall(last)): " + st) }
+                StallSampler.takeAsync(TouchClock.wall(last))
             }
             last = now
             StallSampler.tick()
@@ -197,11 +197,20 @@ enum StallSampler {
     /// 主线程每拍调一次
     static func tick() { lastTick = DispatchTime.now().uptimeNanoseconds; sampled = false }
 
-    /// 取走这次卡顿时抓到的调用栈（符号化，去掉最前面信号处理那几帧），没有就 nil
-    static func take() -> String? {
+    /// 取走这次卡顿时抓到的调用栈：地址先拷出来，符号化在后台线程做完再记日志（不占主线程）
+    static func takeAsync(_ at: Int64) {
         let n = Int(stallFrameCount)
-        guard n > 0, let syms = backtrace_symbols(stallFrames, Int32(n)) else { return nil }
+        guard n > 0 else { return }
         stallFrameCount = 0
+        let copy = UnsafeMutablePointer<UnsafeMutableRawPointer?>.allocate(capacity: n)
+        copy.update(from: stallFrames, count: n)
+        DispatchQueue.global(qos: .utility).async {
+            if let st = symbolize(copy, n) { InkDiag.shared.log("stall stack \(at): " + st) }
+            copy.deallocate()
+        }
+    }
+    private static func symbolize(_ frames: UnsafeMutablePointer<UnsafeMutableRawPointer?>, _ n: Int) -> String? {
+        guard let syms = backtrace_symbols(frames, Int32(n)) else { return nil }
         var out: [String] = []
         for i in 0..<n {
             guard let c = syms[i] else { continue }
