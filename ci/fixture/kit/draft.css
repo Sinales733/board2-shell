@@ -29,7 +29,7 @@ html[data-theme=day] .dtool { box-shadow: 0 8px 24px rgba(60, 48, 30, .18); }
 .dgrip svg { width: 20px; height: 20px; fill: currentColor; stroke: none; transform: rotate(90deg); }
 .dcol i, .dpal i { display: block; width: 20px; height: 20px; border-radius: 50%; box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--line2); }
 /* 缩放比例：点它回到 100%、回到有笔迹的地方（无限画布，2026-11-22 换掉原来的翻页） */
-.dzm { width: 44px; height: 34px; border-radius: 10px; display: grid; place-items: center; font: 700 12px/1 var(--mono); color: var(--muted); letter-spacing: -.02em; transition: background var(--t-mid), color var(--t-mid), transform var(--m-fast); }
+.dzm { width: 44px; height: 44px; border-radius: 10px; display: grid; place-items: center; font: 700 12px/1 var(--mono); color: var(--muted); letter-spacing: -.02em; transition: background var(--t-mid), color var(--t-mid), transform var(--m-fast); }
 .dzm span { white-space: nowrap; }
 /* Apple Pencil 双击切笔 / 橡皮：被切到的那个按钮闪一下 */
 .dtool .ic.flash { animation: dflash var(--t-big) var(--ease); }

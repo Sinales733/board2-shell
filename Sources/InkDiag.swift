@@ -10,6 +10,8 @@ final class InkDiag {
     static let shared = InkDiag()
 
     private var lines: [String] = []
+    /// 最近的 500 行，发出去以后也留着（lines 发到电脑后会删掉；截图模式的测试查"有没有记过这一句"用这个）
+    private var recent: [String] = []
     private var sending = false
     private var timer: Timer?
     private let fmt: DateFormatter = {
@@ -56,12 +58,14 @@ final class InkDiag {
 
     private func push(_ line: String) {
         lines.append(line)
+        recent.append(line)
+        if recent.count > 500 { recent.removeFirst(recent.count - 500) }
         if lines.count > 3000 { lines.removeFirst(lines.count - 3000) }
         if ShotMode.isOn { ShotMode.hostWrite(".ink.log", line, append: true) }
     }
 
-    /// 还留在内存里的日志里有没有这一句（截图模式的测试用）
-    func contains(_ t: String) -> Bool { lines.contains { $0.contains(t) } }
+    /// 最近 500 行里有没有这一句（不管发没发出去；截图模式的测试用）
+    func contains(_ t: String) -> Bool { recent.contains { $0.contains(t) } }
 
     /// 最近几行（截图模式的状态文件用）。
     func tail(_ n: Int) -> [String] { Array(lines.suffix(n)) }

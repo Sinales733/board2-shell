@@ -300,14 +300,16 @@ final class ShotsUITests: XCTestCase {
             var skip: [[Double]] = [[ex - 30, 0, 60, H0]]
             if let r = web()["dtool"] as? [Double] { skip.append(r) }
             if let r = native()["toggle"] as? [Double] { skip.append(r) }
-            if windowed { skip.append([30, 40, 110, 80]); skip.append([W0 - 90, H0 - 120, 90, 120]); skip.append([0, 0, W0, 30]) }   // 窗口模式下系统画的：窗口按钮（左上）、缩放把手（右下）、顶上的时间
+            let winF = app.windows.firstMatch.frame, scrW = Double(sb.frame.width)
+            // 窗口模式下系统画在窗口上的：左上的窗口按钮、右下的缩放把手（屏幕坐标）；窗口外面（墙纸、时间）pixelDiff 本来就不比
+            let scrSkip: [[Double]] = windowed ? [[Double(winF.minX), Double(winF.minY), 120, 50], [Double(winF.maxX) - 60, Double(winF.maxY) - 60, 60, 60]] : []
             // 被切开的第 2–4 笔：沿原来的笔画外扩 4 点的长条单独比（只允许边缘抗锯齿变化），不算进"别的笔迹"
             let cutBands: [[Double]] = (1...3).map { i in [z.x0 - 4, z.ys[i] - 6, z.x1 - z.x0 + 8, 32] }   // 笔画从 y 斜到 y+20，粗 2.4
-            let (cdiff, _) = pixelDiff(shot0, shot1, W0, skip, save: outDir.appendingPathComponent("erase-diff-all-\(o).png"))
+            let (cdiff, _) = pixelDiff(shot0, shot1, W0, skip, win: winF, scrW: scrW, scrSkip: scrSkip, save: outDir.appendingPathComponent("erase-diff-all-\(o).png"))
             skip += cutBands
-            let (diff, box) = pixelDiff(shot0, shot1, W0, skip, save: outDir.appendingPathComponent("erase-diff-\(o).png"))
+            let (diff, box) = pixelDiff(shot0, shot1, W0, skip, win: winF, scrW: scrW, scrSkip: scrSkip, save: outDir.appendingPathComponent("erase-diff-\(o).png"))
             step("eraser: pixels outside 30pt of the eraser path identical", diff == 0,
-                 "differing pixels=\(diff) in box(pt)=\(box) (diff image erase-diff-\(o).png); excluded cut strokes 2-4 bands, all-diff=\(cdiff)" + (windowed ? " (skipped system window chrome and clock)" : ""))
+                 "differing pixels=\(diff) in box(app pt)=\(box) (diff image erase-diff-\(o).png); excluded cut strokes 2-4 bands, all-diff=\(cdiff); window=\(winF)" + (windowed ? " (outside the window and system window chrome not compared)" : ""))
         }
         tool1("undo", "toolbar undo restores erase", keepsCount: false) { prints() == pre }
         tool1("pen", "toolbar pen") { tool().hasPrefix("ink") }
@@ -487,7 +489,9 @@ final class ShotsUITests: XCTestCase {
     }
 
     /// 两张截图（PNG）逐像素比，跳过 skip 里的矩形（屏幕点坐标），返回不同的像素个数
-    private func pixelDiff(_ a: Data, _ b: Data, _ W: Double, _ skip: [[Double]], save: URL) -> (Int, [Int]) {
+    /// 逐像素比两张整屏截图。skip 是 App 里的坐标（点）；win 是 App 窗口在屏幕上的框、scrW 是屏幕宽（点），W 是 App 自己的宽（点）。
+    /// 窗口外面（窗口模式下系统画的墙纸、时间）不比；scrSkip 是屏幕坐标里不比的框（系统的窗口按钮、缩放把手）。
+    private func pixelDiff(_ a: Data, _ b: Data, _ W: Double, _ skip: [[Double]], win: CGRect, scrW: Double, scrSkip: [[Double]] = [], save: URL) -> (Int, [Int]) {
         guard let ia = UIImage(data: a)?.cgImage, let ib = UIImage(data: b)?.cgImage, ia.width == ib.width, ia.height == ib.height else { return (-1, []) }
         func rgba(_ i: CGImage) -> [UInt8] {
             var px = [UInt8](repeating: 0, count: i.width * i.height * 4)
@@ -496,12 +500,15 @@ final class ShotsUITests: XCTestCase {
             ctx?.draw(i, in: CGRect(x: 0, y: 0, width: i.width, height: i.height))
             return px
         }
-        let pa = rgba(ia), pb = rgba(ib), s = Double(ia.width) / W
+        let pa = rgba(ia), pb = rgba(ib), s = Double(ia.width) / scrW, k = W / Double(win.width)   // s：截图像素 / 屏幕点；k：App 点 / 屏幕点
         var n = 0, bx0 = Int.max, by0 = Int.max, bx1 = -1, by1 = -1
         var mark = [UInt8](repeating: 0, count: ia.width * ia.height * 4)
         for y in 0..<ia.height {
             for x in 0..<ia.width {
-                let px = Double(x) / s, py = Double(y) / s
+                let sx = Double(x) / s, sy = Double(y) / s   // 屏幕上的点
+                if sx < Double(win.minX) || sx >= Double(win.maxX) || sy < Double(win.minY) || sy >= Double(win.maxY) { continue }
+                if scrSkip.contains(where: { sx >= $0[0] && sx <= $0[0] + $0[2] && sy >= $0[1] && sy <= $0[1] + $0[3] }) { continue }
+                let px = (sx - Double(win.minX)) * k, py = (sy - Double(win.minY)) * k   // App 里的点
                 if skip.contains(where: { px >= $0[0] && px <= $0[0] + $0[2] && py >= $0[1] && py <= $0[1] + $0[3] }) { continue }
                 let i = (y * ia.width + x) * 4
                 if pa[i] != pb[i] || pa[i + 1] != pb[i + 1] || pa[i + 2] != pb[i + 2] {
@@ -514,7 +521,8 @@ final class ShotsUITests: XCTestCase {
         if n > 0, let ctx = CGContext(data: &mark, width: ia.width, height: ia.height, bitsPerComponent: 8, bytesPerRow: ia.width * 4,
                                       space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
            let img = ctx.makeImage() { try? UIImage(cgImage: img).pngData()?.write(to: save) }
-        return (n, n > 0 ? [Int(Double(bx0) / s), Int(Double(by0) / s), Int(Double(bx1) / s), Int(Double(by1) / s)] : [])
+        let toApp: (Int, Int) -> [Int] = { x, y in [Int((Double(x) / s - Double(win.minX)) * k), Int((Double(y) / s - Double(win.minY)) * k)] }
+        return (n, n > 0 ? toApp(bx0, by0) + toApp(bx1, by1) : [])   // 框（App 坐标）：左上、右下
     }
 
     func testShots() {
