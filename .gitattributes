@@ -2,3 +2,7 @@
 *.py text eol=lf
 *.swift text eol=lf
 *.yml text eol=lf
+# 待上线到 board2 的网页文件：仓库、云端、待上线目录都用 LF，逐字节相同
+ci/fixture/kit/draft.js text eol=lf
+ci/fixture/kit/draft.css text eol=lf
+ci/fixture/index.html text eol=lf

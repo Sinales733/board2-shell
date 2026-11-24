@@ -12,7 +12,9 @@ eraser cuts strokes 2-4, strokes 1 and 5 unchanged
 eraser: pixels outside 30pt of the eraser path: none differ by more than 8 levels
 toolbar undo restores erase
 toolbar pen
+color button opens palette (blue)
 color blue right after opening palette
+color button opens palette (red)
 color red right after opening palette
 red stroke
 new stroke is red
@@ -30,25 +32,50 @@ finger switch on -> anyInput
 finger switch off -> pencilOnly
 more closes
 drag grip moves toolbar, no stroke, nothing opened below
+toolbar left + drawer open: overlap of the two is a hole in the mask
+ask panel enlarged: toolbar hidden or clear of the panel
+ask panel back to normal: toolbar shown again
 clear first tap: confirm state only
 tap on confirm bubble: nothing cleared, page not clicked
 clear confirm times out
 press clear, slide out, release: nothing happens
 double tap clear: second tap within 300ms ignored, nothing cleared
+clear tap 1
 clear tap 2: native and old draft both 0
 stroke after clear
+second clear tap 1
 second clear tap 2
 undo #1: back to the stroke written after first clear
 undo #2: that stroke undone
 undo #3: first clear undone, old draft back
+undo-clear-kill: clear tap 1
+undo-clear-kill: clear tap 2
+undo-clear-kill: undo the clear
+undo clear then kill + relaunch: strokes back
+clear before kill tap 1
 clear before kill tap 2
 clear then kill + relaunch: stays cleared
 old draft restored on server for offline test
+offline clear tap 1
 offline clear tap 2
 offline: switch away and back by real taps, old draft stays cleared
 online again: cleared old draft uploaded
+old draft arrives late after a pan: view kept, old draft shown and follows canvas
+slow old draft: clear tap 1
+slow old draft: clear tap 2
+old draft arrives after a clear: cleared too and written back
+slow old draft: undo the clear brings it back
+cache test online: clear tap 1
+cache test online: clear tap 2
+cleared online, killed, opened offline: old draft stays cleared
+cache test: old draft back on server and in cache
+cache test offline: clear tap 1
+cache test offline: clear tap 2
+offline clear uploaded automatically when back online (no reopen)
+cleared offline, uploaded, opened offline again: stays cleared
 stroke before quick close
 close then tap page option within 200ms: option gets the click
+main-thread heartbeat runs only while the draft is open
 reopen: strokes kept
 stroke then close immediately
 stroke then close immediately: stroke kept after reopen

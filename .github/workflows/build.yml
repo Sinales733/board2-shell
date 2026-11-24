@@ -122,9 +122,42 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+  stress:
+    # 边缘压力测试：工具条每个按钮、左边缘抽屉题格各连点 300 下（ci/sim_stress.sh、UITests/StressUITests.swift），全屏 / 窗口 × 竖 / 横 四个并排跑
+    if: ${{ !startsWith(github.event.head_commit.message, '诊断') }}
+    runs-on: macos-26
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        cfg: [full-portrait, full-landscape, windowed-portrait, windowed-landscape]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate --spec project.yml
+
+      - name: Stress taps on iPad simulator
+        run: |
+          chmod +x ci/sim_stress.sh
+          ci/sim_stress.sh stress ${{ matrix.cfg }}
+
+      - name: Upload stress results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: stress-${{ matrix.cfg }}
+          path: stress
+          if-no-files-found: warn
+          retention-days: 30
+
   release:
-    # 编译和模拟器测试都过了才发可交付的安装包 Board2.ipa：把 build 任务那个文件原样取下来（不解压、不重新打包），改个名再发
-    needs: [build, simulator]
+    # 编译、模拟器测试、压力测试都过了才发可交付的安装包 Board2.ipa：把 build 任务那个文件原样取下来（不解压、不重新打包），改个名再发
+    needs: [build, simulator, stress]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

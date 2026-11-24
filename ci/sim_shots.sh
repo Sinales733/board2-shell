@@ -46,11 +46,12 @@ echo "build-for-testing exit: $?"
 
 # 诊断轮：提交说明以"诊断"开头时只跑第一次换橡皮的诊断，跑完退出（不出包）
 if git log -1 --format=%s | grep -q '^诊断'; then
-  for v in base warmopen warmlaunch vector; do
-    xcrun simctl shutdown "$UDID" || true
-    xcrun simctl boot "$UDID" || true
-    xcrun simctl bootstatus "$UDID" -b
-    for i in 1 2 3; do
+  # 第二轮：每次都先重启模拟器（冷状态），不预热（nowarm）和启动时预热（warm）各 4 次
+  for v in nowarm warm; do
+    for i in 1 2 3 4; do
+      xcrun simctl shutdown "$UDID" || true
+      xcrun simctl boot "$UDID" || true
+      xcrun simctl bootstatus "$UDID" -b
       TEST_RUNNER_B2_DIAG_VAR=$v xcodebuild test-without-building "${COMMON[@]}" -only-testing:Board2ShotsUITests/ShotsUITests/testEraserDiag > "$OUT/xctest-diag-$v-$i.log" 2>&1
       cp "$HOME/b2shots/inktest-portrait.ink.log" "$OUT/diag-$v-$i.ink.log" 2>/dev/null || true
     done
@@ -119,6 +120,7 @@ echo "===== app log (JS errors) ====="; grep "Board2Shell JS" "$OUT/app.log" | h
 ls -la "$OUT"
 echo "xcodebuild test exit codes: shots=$RC ink=$RC_INK ink-windowed=$RC_INKW motion=$RC_MOTION"
 # 自检有一条不对、或者有截图没等到就绪：让 CI 变红（截图仍然照常上传）
+echo "===== 主线程卡顿归类 ====="; python3 ci/classify_stalls.py "$OUT" || true
 python3 ci/check_selftest.py "$OUT"
 CHECK=$?
 if [ $RC -ne 0 ] || [ $RC_INK -ne 0 ] || [ $RC_INKW -ne 0 ] || [ $RC_MOTION -ne 0 ] || [ $CHECK -ne 0 ]; then exit 1; fi

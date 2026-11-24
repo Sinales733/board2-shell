@@ -124,8 +124,12 @@ enum MainBeat {
     private(set) static var gaps: [String] = []
     private(set) static var slow: [String] = []
 
+    static func stop() { timer?.invalidate(); timer = nil }
+    static var running: Bool { timer != nil }
+
     static func start() {
         guard timer == nil else { return }
+        last = ProcessInfo.processInfo.systemUptime
         let t = Timer(timeInterval: 0.05, repeats: true) { _ in
             let now = ProcessInfo.processInfo.systemUptime
             let gap = now - last

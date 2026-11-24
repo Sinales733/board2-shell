@@ -187,6 +187,8 @@ final class ShellViewController: UIViewController {
         var rec = function (s) { c.last.push(s); if (c.last.length > 10) c.last.shift(); post(s); };
         addEventListener('pointercancel', function (e) { c.pc++; rec('web pointercancel ' + e.pointerType + ' ' + desc(e)); }, true);
         addEventListener('touchcancel', function (e) { c.tc++; rec('web touchcancel ' + desc(e)); }, true);
+        // 云端测试（截图模式）才有：每个 click 记一行（压力测试量"抬手→网页收到 click"）
+        addEventListener('click', function (e) { if (!window.__b2shotmode) return; try { window.webkit.messageHandlers.b2shell.postMessage({ k: 'clicklog', v: 'web click ' + desc(e) }); } catch (x) {} }, true);
       } catch (e) {}
     })();
     """
@@ -273,6 +275,7 @@ final class ShellViewController: UIViewController {
         }
         // 重新连上：记录补发完、再把笔迹补传，真有东西传过去了才说"传过去了"
         proxy.onReplayed = { [weak self] sent in
+            self?.retryPendingDrafts()
             self?.ink?.syncAll { inked in
                 if sent + inked > 0 { self?.showToast(OfflineProxy.Text.back) }
             }
@@ -281,7 +284,7 @@ final class ShellViewController: UIViewController {
             // 进后台：要一点后台时间把笔迹存完
             var task = UIBackgroundTaskIdentifier.invalid
             task = UIApplication.shared.beginBackgroundTask { UIApplication.shared.endBackgroundTask(task); task = .invalid }
-            self?.ink?.saveNow { if task != .invalid { UIApplication.shared.endBackgroundTask(task); task = .invalid } }
+            self?.ink?.saveAfterLastStroke { if task != .invalid { UIApplication.shared.endBackgroundTask(task); task = .invalid } }
         }
         NotificationCenter.default.addObserver(forName: UIApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
             self?.ink?.saveNowAndWait()   // 要被杀掉：存盘队列同步跑完
@@ -369,6 +372,9 @@ final class ShellViewController: UIViewController {
         // 那一下点工具条就要等这么久（1.8 复审时量出来的根因）。App 里改成页面一开就先建好，第一下点按只需 resume。
         config.userContentController.addUserScript(WKUserScript(source: ShellViewController.audioWarmJS, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         config.userContentController.addUserScript(WKUserScript(source: ShellViewController.cancelJS, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        if ShotMode.isOn {
+            config.userContentController.addUserScript(WKUserScript(source: "window.__b2shotmode = 1;", injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
         config.userContentController.addUserScript(WKUserScript(source: InkLayer.flagScript,
                                                                 injectionTime: .atDocumentStart,
                                                                 forMainFrameOnly: true))
@@ -437,6 +443,11 @@ final class ShellViewController: UIViewController {
 
     /// 只加一个 UIPencilInteraction，加在根 view（webView 的父视图）上。
     /// 不在 webView 上再加第二个：同一层级里两个实例都会收到回调，切换会被执行两次（等于没切）。
+    /// 网页里清空过、写回电脑没成功的旧稿：连上电脑 / 回到前台时让网页按先后补传
+    fileprivate func retryPendingDrafts() {
+        webView.evaluateJavaScript("window.Kit && Kit.draft && Kit.draft.native && Kit.draft.native.retryPending && Kit.draft.native.retryPending();0", completionHandler: nil)
+    }
+
     private func setUpPencil() {
         let pencil = UIPencilInteraction()
         pencil.delegate = self
@@ -445,9 +456,14 @@ final class ShellViewController: UIViewController {
     }
 
     /// 隐蔽入口：三指按住 2 秒，打开"服务器地址"页。
+    /// 三指长按 2 秒开设置的那个手势（草稿纸开着时不认）
+    private weak var hiddenPress: UILongPressGestureRecognizer?
+
     private func setUpHiddenEntry() {
         let press = UILongPressGestureRecognizer(target: self, action: #selector(hiddenEntryPressed(_:)))
         press.numberOfTouchesRequired = 3
+        press.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]   // 只认手指（笔、掌根加笔不算）
+        hiddenPress = press
         press.minimumPressDuration = 2.0
         press.allowableMovement = 40
         press.cancelsTouchesInView = false
@@ -477,6 +493,7 @@ final class ShellViewController: UIViewController {
     @objc private func appWillEnterForeground() {
         proxy.kick()
         ink?.syncAll()
+        retryPendingDrafts()
         DailyReminder.sync { [weak self] in self?.overlay.reminderMayHaveChanged() }
         switch state {
         case .failed, .idle:
@@ -725,6 +742,12 @@ extension ShellViewController: UIPencilInteractionDelegate {
 // MARK: - UIGestureRecognizerDelegate
 
 extension ShellViewController: UIGestureRecognizerDelegate {
+    /// 草稿纸开着时三指长按不开设置（写字时手掌、手指乱碰）
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        if gestureRecognizer === hiddenPress, ink?.drawerOpen == true { return false }
+        return true
+    }
+
     /// 三指长按不抢网页自己的手势。
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
@@ -853,6 +876,8 @@ extension ShellViewController: WKScriptMessageHandler {
             if ShotMode.isOn { shotLog.append(v); if shotLog.count > 40 { shotLog.removeFirst() }; ShotMode.hostWrite(".log", v, append: true) }
         case "audio":
             InkDiag.shared.log(String((body["v"] as? String ?? "").prefix(200)))
+        case "clicklog":
+            if ShotMode.isOn { InkDiag.shared.log(String((body["v"] as? String ?? "").prefix(200))) }
         case "cancel":
             let v = String((body["v"] as? String ?? "").prefix(300))
             InkDiag.shared.log(v)
@@ -955,7 +980,9 @@ extension ShellViewController {
         clearSure:!!(cl&&cl.classList.contains('sure')),sureShown:!!(su&&su.classList.contains('on')),undoDisabled:!!(q('[data-a="undo"]')||{}).disabled,
         btn:{grip:r(q('[data-a="grip"]')),pen:r(q('[data-a="pen"]')),eraser:r(q('[data-a="eraser"]')),color:r(q('[data-a="color"]')),undo:r(q('[data-a="undo"]')),
         clear:r(cl),sure:r(su),zoom:r(q('[data-a="zoom"]')),more:r(q('[data-a="more"]')),close:r(q('[data-a="close"]')),red:r(q('.dpal [data-c="red"]')),blue:r(q('.dpal [data-c="blue"]')),finger:r(q('[data-a="finger"]'))},
-        pal:!!(q('.dpal')&&q('.dpal').classList.contains('on')),moreOpen:!!(q('.dmore')&&q('.dmore').classList.contains('on'))});})()
+        pal:!!(q('.dpal')&&q('.dpal').classList.contains('on')),moreOpen:!!(q('.dmore')&&q('.dmore').classList.contains('on')),
+        loading:!!(d&&d.D.doc&&d.D.doc.ph),dhide:!!(t&&t.classList.contains('dhide')),
+        fb:(function(){var f=document.getElementById('fbp');return {on:!!(f&&f.classList.contains('on')),wide:!!(f&&f.classList.contains('wide')),panel:r(f),wideBtn:r(document.getElementById('fbWide'))};})()});})()
         """
         webView.evaluateJavaScript(js) { [weak self] res, _ in
             guard let self = self else { return }
@@ -1001,6 +1028,11 @@ extension ShellViewController {
             firePencilToggle()
         case "closeall":
             webView.evaluateJavaScript("try{Board2.api.closeAll()}catch(e){};0", completionHandler: nil)
+        case "drawer":
+            // 开选题抽屉（草稿纸开着时题号被纸盖住，点不到；测"让出区重叠"用）
+            webView.evaluateJavaScript("try{document.getElementById('tag').click()}catch(e){};0", completionHandler: nil)
+        case "askopen":
+            webView.evaluateJavaScript("try{Kit.ask.open()}catch(e){};0", completionHandler: nil)
         case "finger":
             // on = 强制手指也写（模拟器没有笔）；auto = 跟工具条的手指书写开关走
             ink?.testFinger(parts.count > 1 && parts[1] == "on" ? true : nil)

@@ -32,6 +32,8 @@ final class InkLayer: NSObject {
     private let store = InkStore()
 
     private var isOpen = false
+    /// 草稿纸开着没有（三指长按开设置时要看）
+    var drawerOpen: Bool { isOpen }
     private var id: String?
     private var theme = "night"
     private var labels = (open: "", close: "")
@@ -58,9 +60,18 @@ final class InkLayer: NSObject {
     private var firstDirtyAt: TimeInterval = 0
     /// 最近一次给画布换上工具：哪个、墙上时刻（毫秒）、换这一句用了多久
     private var lastToolApply: [String: Any] = [:]
+    /// 让出区个数最近一次变化：个数、网页发出时刻、App 收到时刻（墙上毫秒）
+    private var lastRects: [String: Any] = [:]
     /// 抬笔了但 PencilKit 还没把这一笔交到画布上（drawingDidChange 没回来）：收起 / 换题先等它
     private var pendingStroke = false
     private var pendingSince: TimeInterval = 0
+    /// 最后一笔属于哪道题（抬笔那一刻的题号）
+    private var pendingStrokeId: String?
+    /// 等最后一笔期间到的消息：按到达顺序排队，等完一起按顺序处理
+    private var deferQueue: [[String: Any]] = []
+    private var deferring = false
+    /// 等了 300 毫秒还没交到画布的那一笔：晚到时按它原来的题号存（题号、截止时刻）
+    private var lateStroke: (id: String, until: TimeInterval)?
     /// 最近一次工具条点击的时间线（截图模式状态文件用）
     private var lastTap: [String: Any] = [:]
     private var toolName = "pen", colorName = "ink", finger = false
@@ -111,8 +122,10 @@ final class InkLayer: NSObject {
             canvas.leadingAnchor.constraint(equalTo: host.leadingAnchor),
             canvas.trailingAnchor.constraint(equalTo: host.trailingAnchor)
         ])
-        maskLayer.fillRule = .nonZero
-        if ShotVariant.on("warmlaunch") { DispatchQueue.main.async { self.warmEraser("launch") } }
+        maskLayer.fillRule = .evenOdd   // 路径里已经没有重叠的洞了，两种规则结果一样
+        // 启动时（画布一定是空的）先给画布换一次位图橡皮再换回笔：冷启动后第一次换橡皮、画布上又有笔画时，PencilKit 要卡 1.7–3.9 秒
+        // （云端诊断 r29-diag：不预热冷启动第一次 1721ms；空画布上预热只要 2–12ms，之后换橡皮 3–4ms）。诊断变体 nowarm 关掉它
+        if !ShotVariant.on("nowarm") { DispatchQueue.main.async { self.warmEraser("launch") } }
         canvas.layer.mask = maskLayer
         canvas.drawingGestureRecognizer.addTarget(self, action: #selector(drawingGesture(_:)))
 
@@ -149,7 +162,7 @@ final class InkLayer: NSObject {
     func forceClose(_ why: String) {
         guard isOpen else { return }
         InkDiag.shared.log("force close: \(why)")
-        saveNow()
+        saveAfterLastStroke()
         isOpen = false
         closeUI()
         placeToggle()
@@ -188,21 +201,48 @@ final class InkLayer: NSObject {
 
     // MARK: - 网页发来的消息
 
+    /// 每 30 毫秒看一眼最后一笔交到画布没有；交了或等满 300 毫秒，按顺序处理排着的消息。
+    /// 等满还没交：记下它属于哪道题，晚到时按那个题号合并存盘（不丢、不串到新题）。
+    private func waitStrokeThenDrain() {
+        let waited = ProcessInfo.processInfo.systemUptime - pendingSince
+        if pendingStroke && waited < 0.3 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in self?.waitStrokeThenDrain() }
+            return
+        }
+        if pendingStroke {
+            InkDiag.shared.log("pending stroke not committed after \(Int(waited * 1000))ms, go on; late stroke goes to \(pendingStrokeId ?? "nil")")
+            if let pid = pendingStrokeId { lateStroke = (pid, ProcessInfo.processInfo.systemUptime + 3) }
+            pendingStroke = false
+        }
+        deferring = false
+        let q = deferQueue
+        deferQueue = []
+        for b in q { handle(b) }
+    }
+
+    /// 收起、进后台前：先等最后一笔交到画布（最多 300 毫秒），再存
+    func saveAfterLastStroke(done: (() -> Void)? = nil) {
+        if pendingStroke && ProcessInfo.processInfo.systemUptime - pendingSince < 0.3 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in self?.saveAfterLastStroke(done: done) }
+            return
+        }
+        saveNow(done: done)
+    }
+
     func handle(_ body: [String: Any]) {
         MainBeat.time("msg-\(body["k"] as? String ?? "?")") { handleInner(body) }
     }
 
     private func handleInner(_ body: [String: Any]) {
         guard let k = body["k"] as? String else { return }
+        // 正在等最后一笔：这期间来的消息排在后面，按到达顺序处理
+        if deferring { deferQueue.append(body); return }
         // 最后一笔还没交到画布上，又要收起或换题：等它（最多 300 毫秒）再处理这条消息，不然存盘会漏掉这一笔
         if k == "state", pendingStroke, ((body["open"] as? Bool) == false || (body["id"] as? String) != id) {
-            let waited = ProcessInfo.processInfo.systemUptime - pendingSince
-            if waited < 0.3 {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in self?.handle(body) }
-                return
-            }
-            InkDiag.shared.log("pending stroke not committed after \(Int(waited * 1000))ms, go on")
-            pendingStroke = false
+            deferring = true
+            deferQueue = [body]
+            waitStrokeThenDrain()
+            return
         }
         switch k {
         case "state": break
@@ -259,6 +299,11 @@ final class InkLayer: NSObject {
         }
         webBtnCovered = body["covered"] as? Bool ?? false
         if let rs = body["rects"] as? [[Double]] {
+            if rs.count != canvas.passRects.count {
+                let sent = (body["ts"] as? Double).map { Int64($0) } ?? 0, recv = InkStore.now()
+                lastRects = ["count": rs.count, "sent": sent, "recv": recv]
+                if sent > 0 && recv - sent > 100 { InkDiag.shared.log("state with \(rs.count) rects arrived \(recv - sent)ms after the page sent it") }
+            }
             canvas.passRects = rs.compactMap { r in
                 guard r.count == 4, r.allSatisfy({ $0.isFinite }) else { return nil }
                 return CGRect(x: r[0], y: r[1], width: r[2], height: r[3])
@@ -295,7 +340,7 @@ final class InkLayer: NSObject {
 
     // MARK: - 画布、工具盘的显示和收起
 
-    /// 诊断变体：先给画布换一次橡皮再换回来（看第一次换橡皮慢是不是一次性的准备工作）
+    /// 预热：给画布换一次位图橡皮再换回来（启动时做一次）
     private var warmed = false
     private(set) var warmInfo: [String: Any] = [:]
     private func warmEraser(_ whereName: String) {
@@ -311,7 +356,7 @@ final class InkLayer: NSObject {
 
     private func openUI() {
         InkDiag.shared.touchLogging = true
-        if ShotVariant.on("warmopen") { warmEraser("open") }
+        MainBeat.start()
         canvas.isHidden = false
         tellWebView()
         tellUndo()
@@ -327,6 +372,7 @@ final class InkLayer: NSObject {
         // 第一响应者交回网页（不然收起后点网页的第一下会先被拿去换第一响应者）
         let w = webView?.becomeFirstResponder() ?? false
         InkDiag.shared.touchLogging = false
+        MainBeat.stop()
         InkDiag.shared.log("canvas closed strokes=\(canvas.drawing.strokes.count) resign canvas=\(rc) web first=\(w)")
     }
 
@@ -351,7 +397,7 @@ final class InkLayer: NSObject {
         }
         let ms = Int((ProcessInfo.processInfo.systemUptime - t0) * 1000)
         lastToolApply = ["tool": t, "color": c, "wall": TouchClock.wall(ProcessInfo.processInfo.systemUptime), "assignMs": ms]
-        InkDiag.shared.log("tool applied \(InkLayer.toolName(canvas.tool)) color=\(c) assign=\(ms)ms")
+        InkDiag.shared.log("tool applied \(InkLayer.toolName(canvas.tool)) color=\(c) assign=\(ms)ms wall=\(lastToolApply["wall"] ?? 0)")
     }
 
     /// 告诉网页：撤销能不能点（工具条的撤销按钮跟着亮 / 灰）。
@@ -374,6 +420,7 @@ final class InkLayer: NSObject {
         canvas.undoManager?.registerUndo(withTarget: self) { me in
             me.setDrawing(before, "undo-clear")
             me.changed()
+            me.saveNow()   // 撤销清空也马上存（和清空一样，不走防抖）
             me.tellUndo()
             me.webView?.evaluateJavaScript("window.Kit && Kit.draft && Kit.draft.native && Kit.draft.native.unclear && Kit.draft.native.unclear()", completionHandler: nil)
         }
@@ -420,14 +467,37 @@ final class InkLayer: NSObject {
 
     /// 网页"纸上面的那几层"（问答面板、抽屉……）：画布在那里挖空（新字不浮在面板上），触摸也让给网页。
     private func applyMask() {
-        // 外框顺时针、每个洞逆时针，按非零规则填：两块让出区重叠的地方仍是洞（奇偶规则会把重叠处又填回来、笔迹露出来）
-        let path = UIBezierPath(rect: CGRect(x: -10_000, y: -10_000, width: 40_000, height: 40_000))
-        for r in canvas.passRects { path.append(UIBezierPath(roundedRect: r, cornerRadius: 12).reversing()) }
+        // 让出区（洞）先并成一块（重叠处只算一次），再从外框里减掉。只靠环绕方向 + 非零规则时，两个洞重叠处是 +1−1−1=−1，仍会被填上、笔迹露出来
+        let outer = CGPath(rect: CGRect(x: -10_000, y: -10_000, width: 40_000, height: 40_000), transform: nil)
+        var holes: CGPath?
+        for r in canvas.passRects {
+            let h = CGPath(roundedRect: r, cornerWidth: min(12, r.width / 2), cornerHeight: min(12, r.height / 2), transform: nil)
+            holes = holes.map { $0.union(h) } ?? h
+        }
+        let path = UIBezierPath(cgPath: holes.map { outer.subtracting($0) } ?? outer)
         CATransaction.begin(); CATransaction.setDisableActions(true)
         // 画布是滚动视图，图层的原点跟着内容偏移走；遮罩放在偏移处，里面的路径就是屏幕坐标。
         maskLayer.frame = CGRect(origin: canvas.contentOffset, size: canvas.bounds.size)
         maskLayer.path = path.cgPath
         CATransaction.commit()
+    }
+
+    /// 自检：任意两块让出区重叠处的中心点，遮罩路径里都不算"填充"（是洞，不露笔迹）。没有重叠就是 true
+    func maskOverlapOK() -> Bool {
+        guard let path = maskLayer.path else { return true }
+        let rs = canvas.passRects
+        for i in 0..<rs.count { for j in (i + 1)..<max(i + 1, rs.count) {
+            let x = rs[i].intersection(rs[j])
+            if x.isNull || x.width < 2 || x.height < 2 { continue }
+            if path.contains(CGPoint(x: x.midX, y: x.midY), using: .evenOdd) { return false }
+        } }
+        return true
+    }
+    /// 有没有两块让出区重叠（测试看"这一步真造出了重叠"）
+    var passOverlap: Bool {
+        let rs = canvas.passRects
+        for i in 0..<rs.count { for j in (i + 1)..<max(i + 1, rs.count) where !rs[i].intersection(rs[j]).isNull && rs[i].intersection(rs[j]).width >= 2 { return true } }
+        return false
     }
 
     /// 最近一次画画手势结束时手指 / 笔在屏幕上的位置（截图模式的状态文件用）
@@ -446,9 +516,13 @@ final class InkLayer: NSObject {
         if gr.state == .changed { return }
         let names = [0: "possible", 1: "began", 2: "changed", 3: "ended", 4: "cancelled", 5: "failed"]
         let p = gr.location(in: canvas.superview)
-        if gr.state == .began { canvas.penDown = true }
+        if gr.state == .began {
+            canvas.penDown = true
+            // 掌根先压在工具条上、笔后落下：网页工具条上那一下还没抬起的按下作废（不然掌根一抬就算点了一下）
+            webView?.evaluateJavaScript("window.Kit && Kit.draft && Kit.draft.native && Kit.draft.native.penDown && Kit.draft.native.penDown()", completionHandler: nil)
+        }
         if gr.state == .ended || gr.state == .cancelled || gr.state == .failed { canvas.penDown = false }
-        if gr.state == .ended { lastTouchEnd = p; pendingStroke = true; pendingSince = ProcessInfo.processInfo.systemUptime }
+        if gr.state == .ended { lastTouchEnd = p; pendingStroke = true; pendingStrokeId = id; pendingSince = ProcessInfo.processInfo.systemUptime }
         // 写完一笔：画布要是拿了第一响应者，交回网页（不然下一下点工具条，网页要先抢回第一响应者，点击会晚到）
         if gr.state == .ended || gr.state == .cancelled, canvas.isFirstResponder {
             let w = webView?.becomeFirstResponder() ?? false
@@ -503,7 +577,17 @@ final class InkLayer: NSObject {
         dirtyDrawing = false
         dirtyView = false
         if !loaded && drawing != nil { InkDiag.shared.log("save before load finished: merge with disk") }
-        store.save(id: id, drawing: drawing, view: v, mergeWithDisk: !loaded, done: done)
+        store.save(id: id, drawing: drawing, view: v, mergeWithDisk: !loaded) { [weak self] ok in
+            if !ok, let self = self, self.id == id {
+                // 写盘失败：仍算脏，2 秒后再存（不记 t、不传）
+                self.dirtyDrawing = true
+                self.saveWork?.cancel()
+                let w = DispatchWorkItem { [weak self] in self?.saveNow() }
+                self.saveWork = w
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: w)
+            }
+            done?()
+        }
     }
 
     private func viewForSave() -> [String: Double] {
@@ -656,7 +740,7 @@ final class InkLayer: NSObject {
         let tf = toggle.frame
         return ["count": canvas.drawing.strokes.count, "strokes": strokes, "prints": prints, "open": isOpen, "id": id ?? NSNull(),
                 "view": [Double(v.x), Double(v.y), Double(v.z)], "tool": InkLayer.toolName(canvas.tool),
-                "color": colorName, "canUndo": canvas.undoManager?.canUndo ?? false, "lastTap": lastTap, "toolApply": lastToolApply, "warm": warmInfo, "variant": ShotVariant.name, "pencilLogged": InkDiag.shared.contains("pencil double tap -> web"), "mainGaps": MainBeat.gaps, "mainSlow": MainBeat.slow, "lastColor": lastStrokeColor(),
+                "color": colorName, "canUndo": canvas.undoManager?.canUndo ?? false, "lastTap": lastTap, "toolApply": lastToolApply, "lastRects": lastRects, "beat": MainBeat.running, "maskOverlapOK": maskOverlapOK(), "passOverlap": passOverlap, "warm": warmInfo, "variant": ShotVariant.name, "pencilLogged": InkDiag.shared.contains("pencil double tap -> web"), "mainGaps": MainBeat.gaps, "mainSlow": MainBeat.slow, "lastColor": lastStrokeColor(),
                 "webBtn": [Double(webBtn.minX), Double(webBtn.minY), Double(webBtn.width), Double(webBtn.height)], "covered": webBtnCovered,
                 "passRects": canvas.passRects.map { [Double($0.minX), Double($0.minY), Double($0.width), Double($0.height)] },
                 "screen": [Double(host?.bounds.width ?? 0), Double(host?.bounds.height ?? 0)],
@@ -743,6 +827,20 @@ extension InkLayer: PKCanvasViewDelegate {
     func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
         guard !settingDrawing else { return }
         let n = canvasView.drawing.strokes.count
+        if let late = lateStroke {
+            if ProcessInfo.processInfo.systemUptime > late.until { lateStroke = nil }
+            else if late.id != id, n > lastCount {
+                // 换题后才交到画布的那一笔：从这道题拿掉，合并进它原来那道题存盘
+                lateStroke = nil
+                let all = canvasView.drawing.strokes
+                let extra = Array(all.suffix(n - lastCount))
+                setDrawing(PKDrawing(strokes: Array(all.prefix(lastCount))), "late-stroke-moved")
+                store.save(id: late.id, drawing: PKDrawing(strokes: extra), view: [:], mergeWithDisk: true)
+                InkDiag.shared.log("late stroke(s) \(extra.count) saved to \(late.id), not to \(id ?? "nil")")
+                tellUndo()
+                return
+            } else if late.id == id { lateStroke = nil }
+        }
         // 抬笔（draw ended）到这一笔交到画布上的间隔，写进日志好量
         let gap = pendingStroke ? " after_draw_end_ms=\(Int((ProcessInfo.processInfo.systemUptime - pendingSince) * 1000))" : ""
         pendingStroke = false
@@ -813,8 +911,14 @@ final class InkCanvas: PKCanvasView {
         // point 是画布（滚动视图）自己的坐标：减掉内容偏移才是屏幕上的位置
         let p = CGPoint(x: point.x - contentOffset.x, y: point.y - contentOffset.y)
         guard let r = passRects.first(where: { $0.contains(p) }) else { return true }
-        if penDown, let e = event, e.allTouches?.contains(where: { $0.type == .pencil && $0.phase != .ended && $0.phase != .cancelled }) == true {
-            return true   // 掌根：留在画布上（只认笔时手指在画布上什么都不做）
+        // 掌根：这次刚按下的触摸全是手指，而且同一事件里另有一支正在动或停着的笔（笔正按在纸上写）。
+        // 笔自己点工具条时，按下的那下是笔，结构上不会被拦；不看 penDown 的时序
+        if let ts = event?.allTouches {
+            let began = ts.filter { $0.phase == .began }
+            if !began.isEmpty, began.allSatisfy({ $0.type == .direct }),
+               ts.contains(where: { $0.type == .pencil && ($0.phase == .moved || $0.phase == .stationary) }) {
+                return true   // 留在画布上（只认笔时手指在画布上什么都不做）
+            }
         }
         if let e = event, e.timestamp != lastLogged {   // 同一下触摸只记一次
             lastLogged = e.timestamp
@@ -888,6 +992,8 @@ final class InkStore {
     private let q = DispatchQueue(label: "board2.ink.store")
     /// 正在上传的键 → 传完还要不要再传一次（这期间又改过）
     private var inflight: [String: Bool] = [:]
+    /// 上传失败后重试了几次（成功、再存一次就清零）
+    private var retries: [String: Int] = [:]
 
     init() {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -952,7 +1058,8 @@ final class InkStore {
     }
 
     /// drawing 为 nil：只更新取景窗，不动笔迹、不上传。mergeWithDisk：这道题还没读完盘就要存，先和盘上那份合并（不覆盖原笔迹）。
-    func save(id: String, drawing: PKDrawing?, view: [String: Double], mergeWithDisk: Bool = false, done: (() -> Void)? = nil) {
+    /// done(写盘成功没有)
+    func save(id: String, drawing: PKDrawing?, view: [String: Double], mergeWithDisk: Bool = false, done: ((Bool) -> Void)? = nil) {
         let k = InkStore.key(id)
         q.async {
             var m = self.meta(k)
@@ -970,13 +1077,13 @@ final class InkStore {
                     // 写盘失败：不记新的 t、dirty（不然下次对时会以为本机有一份新的）
                     InkDiag.shared.log("ink write failed \(k): \(error.localizedDescription)")
                     self.setMeta(k, m)
-                    self.main { done?() }
+                    self.main { done?(false) }
                     return
                 }
             }
             self.setMeta(k, m)
-            if drawing != nil { self.pushLocked(k, done: nil) }
-            self.main { done?() }
+            if drawing != nil { self.retries[k] = 0; self.pushLocked(k, done: nil) }
+            self.main { done?(true) }
         }
     }
 
@@ -991,6 +1098,10 @@ final class InkStore {
         let m = meta(k)
         guard (m["dirty"] as? Bool) == true, let t = InkStore.ms(m["t"]),
               let data = try? Data(contentsOf: drawingURL(k)), let url = InkStore.serverURL("draft") else { done?(false); return }
+        guard (try? PKDrawing(data: data)) != nil else {   // 本机文件坏了：不传（传上去会把电脑那份好的盖掉）
+            InkDiag.shared.log("ink push skipped \(k): local .drawing unreadable")
+            done?(false); return
+        }
         let doc: [String: Any] = ["v": "pk1", "t": NSNumber(value: t), "pages": [], "view": m["view"] ?? NSNull(),
                                   "id": m["id"] ?? k, "data": data.base64EncodedString()]
         guard let body = try? JSONSerialization.data(withJSONObject: ["id": "pk_" + k, "doc": doc]) else { done?(false); return }
@@ -1013,7 +1124,15 @@ final class InkStore {
                 }
                 let again = self.inflight[k] == true
                 self.inflight[k] = nil
-                if again && ok { self.pushLocked(k, done: nil) }
+                if ok { self.retries[k] = 0 }
+                if again {
+                    self.pushLocked(k, done: nil)   // 传的过程中又改过：再传一次（这次失败了也照样传最新的）
+                } else if !ok {
+                    // 失败：过一会儿重传（5、10、15… 秒，最多 12 次；连上电脑时 syncAll 也会再传）
+                    let n = (self.retries[k] ?? 0) + 1
+                    self.retries[k] = n
+                    if n <= 12 { self.q.asyncAfter(deadline: .now() + Double(min(60, 5 * n))) { self.pushLocked(k, done: nil) } }
+                }
                 done?(ok)
             }
         }.resume()

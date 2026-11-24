@@ -96,6 +96,8 @@ final class ShotsUITests: XCTestCase {
     /// 坐标以网页视图为基准按比例换算（XCUITest 报的元素框和 App 自己的坐标差约 1.107 倍，按比例换算就对得上）。
     /// 每个方向：被系统取消的触摸、网页的 pointercancel / touchcancel 各几次、原始记录（写进 inktest.json 的 cancels）
     private var cancelStats: [String: Any] = [:]
+    /// 每个方向：App 主线程 ≥250ms 卡顿的次数、最长（毫秒），写进 inktest.json 的 mainThread
+    private var mainStats: [String: Any] = [:]
     /// 窗口模式那一遍（CI 把模拟器切回"窗口化 App"后再跑一遍 testInk，环境变量 B2_INK_WINDOWED=1）：
     /// 结果写 inktest-windowed.json，各文件名带 -windowed / inktestw-，"全屏"那一步换成"确实在窗口里"
     private let windowedPass = ProcessInfo.processInfo.environment["B2_INK_WINDOWED"] == "1"
@@ -117,7 +119,7 @@ final class ShotsUITests: XCTestCase {
         }
         // "环境限制"的那一步（竖屏全屏在模拟器里造不出来）不计入通过与否，单独留记录
         let pass = !steps.isEmpty && steps.allSatisfy { ($0["ok"] as? Bool) == true || ($0["env"] as? Bool) == true }
-        let obj: [String: Any] = ["pass": pass, "steps": steps, "cancels": cancelStats]
+        let obj: [String: Any] = ["pass": pass, "steps": steps, "cancels": cancelStats, "mainThread": mainStats]
         if let d = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]) {
             try? d.write(to: outDir.appendingPathComponent(windowedPass ? "inktest-windowed.json" : "inktest.json"))
         }
@@ -176,6 +178,15 @@ final class ShotsUITests: XCTestCase {
         func tool() -> String { native()["tool"] as? String ?? "?" }
         func v2() -> Int { web()["v2"] as? Int ?? -1 }
         func wbtn(_ k: String) -> [Double]? { (web()["btn"] as? [String: Any])?[k] as? [Double] }
+        let markURL = outDir.appendingPathComponent(name + ".testmarks.log")
+        /// 一个 XCUITest 动作的起止时刻（墙上毫秒）写进 <名字>.testmarks.log
+        func mark(_ what: String, _ f: () -> Void) {
+            let t0 = Int64(Date().timeIntervalSince1970 * 1000)
+            f()
+            let line = "\(t0) \(Int64(Date().timeIntervalSince1970 * 1000)) \(what)\n"
+            if let h = try? FileHandle(forWritingTo: markURL) { h.seekToEndOfFile(); h.write(Data(line.utf8)); try? h.close() }
+            else { try? line.write(to: markURL, atomically: true, encoding: .utf8) }
+        }
         func isOpen() -> Bool { (web()["open"] as? Bool) == true && (native()["open"] as? Bool) == true }
         func settle(_ t: TimeInterval = 0.5) { Thread.sleep(forTimeInterval: t) }
         func cmd(_ c: String) { try? c.write(to: cmdURL, atomically: true, encoding: .utf8); Thread.sleep(forTimeInterval: 1.0) }
@@ -186,24 +197,41 @@ final class ShotsUITests: XCTestCase {
             return base.coordinate(withNormalizedOffset: CGVector(dx: x / W, dy: y / H))
         }
         func drag(_ a: (Double, Double), _ b: (Double, Double), velocity: CGFloat = 250, press: TimeInterval = 0.3, hold: TimeInterval = 0.3) {
-            at(a.0, a.1).press(forDuration: press, thenDragTo: at(b.0, b.1), withVelocity: XCUIGestureVelocity(velocity), thenHoldForDuration: hold)
+            mark("drag") { at(a.0, a.1).press(forDuration: press, thenDragTo: at(b.0, b.1), withVelocity: XCUIGestureVelocity(velocity), thenHoldForDuration: hold) }
         }
         func center(_ r: [Double]?) -> (Double, Double)? { guard let r = r, r.count == 4, r[2] > 0 else { return nil }; return (r[0] + r[2] / 2, r[1] + r[3] / 2) }
-        func tapRect(_ r: [Double]?) -> Bool { guard let c = center(r) else { return false }; at(c.0, c.1).tap(); return true }
+        func tapRect(_ r: [Double]?) -> Bool { guard let c = center(r) else { return false }; mark("tap") { at(c.0, c.1).tap() }; return true }
         func lastTap() -> [String: Any] { native()["lastTap"] as? [String: Any] ?? [:] }
         /// 点工具条上一个按钮（只点一次），0.5 秒后看结果；断言这一下 抬手→执行 ≤300 毫秒、纸上没多笔画
-        func tool1(_ k: String, _ label: String, keepsCount: Bool = true, expect: () -> Bool) {
+        /// applies：这一下要给画布换工具——抬手到画布真的换上（App 自己记的时刻）≤300ms。
+        /// rects：这一下会让出区个数变（弹层开合、确认气泡）——抬手到 App 收到新的让出区 ≤300ms。
+        /// a：网页报的动作名（色块是 c-颜色），默认就是 k。
+        func tool1(_ k: String, _ label: String, keepsCount: Bool = true, applies: Bool = false, rects: Bool = false, a: String? = nil, expect: () -> Bool) {
             let c0 = count(), before = lastTap()["act"] as? Int ?? 0
             let ok = tapRect(wbtn(k))
             settle()
-            let t = lastTap(), act = t["act"] as? Int ?? 0, lta = t["liftToAct"] as? Int ?? -1
-            let fresh = act != before && (t["a"] as? String) == k
-            step(label, ok && fresh && lta >= 0 && lta <= 300 && expect() && (!keepsCount || count() == c0),
-                 "tapped=\(ok) fresh=\(fresh) lift→act=\(lta)ms count \(c0)->\(count())" + (fresh ? "" : " (state file age \(stateAge())ms, lastTap a=\(t["a"] ?? "nil") act=\(act))"))
+            let t = lastTap(), act = t["act"] as? Int ?? 0, lta = t["liftToAct"] as? Int ?? -1, lift = t["lift"] as? Int ?? 0
+            let fresh = act != before && (t["a"] as? String) == (a ?? k)
+            var extra = "", good = true
+            if applies {
+                let ta = native()["toolApply"] as? [String: Any] ?? [:], w = ta["wall"] as? Int ?? 0
+                let d = w - lift
+                good = good && w >= lift && d <= 300
+                extra += " lift→applied=\(d)ms (assign \(ta["assignMs"] ?? "?")ms)"
+            }
+            if rects {
+                let lr = native()["lastRects"] as? [String: Any] ?? [:], rv = lr["recv"] as? Int ?? 0, sn = lr["sent"] as? Int ?? 0
+                good = good && rv >= lift && rv - lift <= 300
+                extra += " lift→rects at App=\(rv - lift)ms (page sent +\(sn - lift)ms)"
+            }
+            step(label, ok && fresh && good && lta >= 0 && lta <= 300 && expect() && (!keepsCount || count() == c0),
+                 "tapped=\(ok) fresh=\(fresh) lift→act=\(lta)ms" + extra + " count \(c0)->\(count())" + (fresh ? "" : " (state file age \(stateAge())ms, lastTap a=\(t["a"] ?? "nil") act=\(act))"))
         }
         let tgEl = app.buttons.matching(identifier: "b2draftToggle").firstMatch
         func tapToggle() -> Bool {
-            if tgEl.waitForExistence(timeout: 3) && tgEl.isHittable { tgEl.tap(); return true }
+            var ok = false
+            mark("toggle") { if tgEl.waitForExistence(timeout: 3) && tgEl.isHittable { tgEl.tap(); ok = true } }
+            if ok { return true }
             return tapRect(native()["toggle"] as? [Double])
         }
         func waitCount(_ want: Int, _ t: TimeInterval = 2) -> Int {
@@ -211,22 +239,15 @@ final class ShotsUITests: XCTestCase {
             while Date() < end { c = count(); if c == want { return c }; Thread.sleep(forTimeInterval: 0.1) }
             return c
         }
-        /// 清空：点一次进确认态，再点一次清空。两下要在 4 秒确认期里；超了说明这一次测试操作本身太慢，重来（最多 3 次）
-        func clearConfirmed(_ label: String, expect: () -> Bool) {
-            var notes: [String] = []
-            for attempt in 1...3 {
-                _ = tapRect(wbtn("clear")); settle(0.4)
-                let t1 = lastTap()["act"] as? Int ?? 0, sure = (web()["clearSure"] as? Bool) == true
-                _ = tapRect(wbtn("clear")); settle(0.6)
-                let t2 = lastTap()["act"] as? Int ?? 0, lta = lastTap()["liftToAct"] as? Int ?? -1
-                notes.append("try\(attempt): sure=\(sure) gap=\(t2 - t1)ms lift→act=\(lta)")
-                if t2 - t1 < 3800 {
-                    step(label, sure && lta >= 0 && lta <= 300 && expect(), notes.joined(separator: "; ") + " count=\(count()) v2=\(v2())")
-                    return
-                }
-                Thread.sleep(forTimeInterval: 4.5)
+        /// 清空两下：第一下进确认态（确认气泡 ≤300ms 报到 App），第二下清空。不重试：两下隔超了 4 秒，第二下只会重新进确认态，这一步就红
+        func clearTwice(_ l1: String, _ l2: String, expect: () -> Bool) {
+            tool1("clear", l1, rects: true) { (web()["clearSure"] as? Bool) == true }
+            let a1 = lastTap()["act"] as? Int ?? 0
+            tool1("clear", l2, keepsCount: false) {
+                let a2 = lastTap()["act"] as? Int ?? 0
+                if a2 - a1 >= 4000 { print("INK \(o): \(l2): two clear taps \(a2 - a1)ms apart") }
+                return a2 - a1 < 4000 && expect()
             }
-            step(label, false, notes.joined(separator: "; ") + " (two taps never within the 4 s window)")
         }
         func zone() -> (x0: Double, x1: Double, ys: [Double]) {
             let (W, H) = wh()
@@ -337,7 +358,7 @@ final class ShotsUITests: XCTestCase {
 
         // ---- 橡皮：竖着擦过第 2、3、4 笔和垫底的两条旧稿；第 1、5 笔逐点不变；竖屏再比画面 ----
         let pre = prints()
-        tool1("eraser", "toolbar eraser") { tool().hasPrefix("eraser") }
+        tool1("eraser", "toolbar eraser", applies: true) { tool().hasPrefix("eraser") }
         if !diagVar.isEmpty {
             var rec: [String: Any] = ["variant": diagVar]
             func sample(_ k: String) -> [String: Any] {
@@ -388,15 +409,11 @@ final class ShotsUITests: XCTestCase {
                  ">8 levels: \(r.big) px box(app pt)=\(r.bigBox); 1-8 levels: \(r.small) px max=\(r.smallMax) box(app pt)=\(r.smallBox) (diff image erase-diff-\(fo).png: red >8, orange 1-8); with cut strokes 2-4 bands: >8=\(all.big) 1-8=\(all.small) max=\(all.smallMax); window=\(winF)" + (windowed ? " (outside the window and system window chrome not compared)" : ""))
         }
         tool1("undo", "toolbar undo restores erase", keepsCount: false) { prints() == pre }
-        tool1("pen", "toolbar pen") { tool().hasPrefix("ink") }
+        tool1("pen", "toolbar pen", applies: true) { tool().hasPrefix("ink") }
         // 颜色：先换成蓝，再换成红（点颜色后不等，马上点色块）
         for c in ["blue", "red"] {
-            let c0 = count()
-            _ = tapRect(wbtn("color"))
-            Thread.sleep(forTimeInterval: 0.15)
-            let ok = tapRect(wbtn(c))
-            settle()
-            step("color \(c) right after opening palette", ok && (native()["color"] as? String) == c && count() == c0, "native color=\(native()["color"] ?? "nil") count \(c0)->\(count())")
+            tool1("color", "color button opens palette (\(c))", rects: true) { (web()["pal"] as? Bool) == true }
+            tool1(c, "color \(c) right after opening palette", applies: true, a: "c-" + c) { (native()["color"] as? String) == c }
         }
         write("red stroke", (z.x0, z.ys[0] + 40), (z.x1, z.ys[0] + 50))
         step("new stroke is red", (native()["lastColor"] as? String) == "red", "lastColor=\(native()["lastColor"] ?? "nil")")
@@ -407,8 +424,8 @@ final class ShotsUITests: XCTestCase {
         cmd("finger auto")
         step("pencilOnly by default", (native()["policy"] as? String) == "pencilOnly", "policy=\(native()["policy"] ?? "nil")")
         let kept = count()
-        tool1("eraser", "finger tap on toolbar under pencilOnly") { tool().hasPrefix("eraser") }
-        tool1("pen", "finger tap pen under pencilOnly") { tool().hasPrefix("ink") }
+        tool1("eraser", "finger tap on toolbar under pencilOnly", applies: true) { tool().hasPrefix("eraser") }
+        tool1("pen", "finger tap pen under pencilOnly", applies: true) { tool().hasPrefix("ink") }
         _ = tapRect([z.x0 + 50, z.ys[2] + 30, 20, 20]); settle()
         step("finger tap on paper: no stroke, toolbar still there", count() == kept && (web()["dtoolShown"] as? Bool) == true, "count \(kept)->\(count())")
         let v0 = nview()
@@ -431,7 +448,7 @@ final class ShotsUITests: XCTestCase {
             return v.count == 3 && abs(v[2] - 1) < 0.001 && seen
         }
         // 手指书写开关
-        tool1("more", "more opens") { (web()["moreOpen"] as? Bool) == true }
+        tool1("more", "more opens", rects: true) { (web()["moreOpen"] as? Bool) == true }
         tool1("finger", "finger switch on -> anyInput") { (native()["policy"] as? String) == "anyInput" }
         tool1("finger", "finger switch off -> pencilOnly") { (native()["policy"] as? String) == "pencilOnly" }
         tool1("more", "more closes") { (web()["moreOpen"] as? Bool) == false }
@@ -446,6 +463,41 @@ final class ShotsUITests: XCTestCase {
             if !opened.isEmpty { cmd("closeall") }   // 失败时收掉，不连累后面
             if let g2 = center(wbtn("grip")) { drag(g2, (g2.0, g2.1 - 150), velocity: 300, press: 0.2, hold: 0.2); settle(1.0) }
         } else { step("drag grip moves toolbar, no stroke, nothing opened below", false, "no grip") }
+
+        // ---- 四.1 工具条拖到左边、再开选题抽屉：两块让出区重叠，重叠处在遮罩里是洞（不露笔迹） ----
+        if let g = center(wbtn("grip")) {
+            drag(g, (40, g.1), velocity: 600, press: 0.2, hold: 0.2); settle(1.5)
+            cmd("drawer"); settle(1.5)
+            try? XCUIScreen.main.screenshot().pngRepresentation.write(to: outDir.appendingPathComponent("mask-overlap-\(fo).png"))
+            let ov = (native()["passOverlap"] as? Bool) == true, okm = (native()["maskOverlapOK"] as? Bool) == true
+            step("toolbar left + drawer open: overlap of the two is a hole in the mask", ov && okm,
+                 "side=\(web()["side"] ?? "nil") drawer=\(web()["drawer"] ?? "nil") overlap=\(ov) maskOK=\(okm) passRects=\(native()["passRects"] ?? "nil") (screenshot mask-overlap-\(fo).png)")
+            cmd("closeall"); settle(1.0)
+            if let g2 = center(wbtn("grip")) { drag(g2, (wh().0 - 40, g2.1), velocity: 600, press: 0.2, hold: 0.2); settle(1.5) }
+        } else { step("toolbar left + drawer open: overlap of the two is a hole in the mask", false, "no grip") }
+
+        // ---- 三.4 问答面板放大：放不下工具条就整个收起，不盖面板上的按钮；缩回去工具条再出现 ----
+        cmd("askopen"); settle(1.5)
+        let fb0 = web()["fb"] as? [String: Any] ?? [:]
+        if (fb0["on"] as? Bool) == true, tapRect(fb0["wideBtn"] as? [Double]) {
+            settle(1.5)
+            let fb1 = web()["fb"] as? [String: Any] ?? [:], pn = fb1["panel"] as? [Double] ?? [], dt = web()["dtool"] as? [Double] ?? []
+            let hid = (web()["dhide"] as? Bool) == true
+            let inter = pn.count == 4 && dt.count == 4 && CGRect(x: pn[0], y: pn[1], width: pn[2], height: pn[3]).intersects(CGRect(x: dt[0], y: dt[1], width: dt[2], height: dt[3]))
+            let pr = native()["passRects"] as? [[Double]] ?? []
+            let toolInRects = dt.count == 4 && pr.contains { $0.count == 4 && abs($0[0] - dt[0]) < 2 && abs($0[1] - dt[1]) < 2 && abs($0[2] - dt[2]) < 2 }
+            step("ask panel enlarged: toolbar hidden or clear of the panel", (fb1["wide"] as? Bool) == true && (hid ? !toolInRects : !inter),
+                 "wide=\(fb1["wide"] ?? "nil") hidden=\(hid) toolbar=\(dt) panel=\(pn) toolbar in pass rects=\(toolInRects)")
+            let fb2w = (web()["fb"] as? [String: Any])?["wideBtn"] as? [Double]
+            _ = tapRect(fb2w); settle(1.5)   // 面板上的放大按钮没被工具条盖住：点得到，缩回去
+            let fb3 = web()["fb"] as? [String: Any] ?? [:]
+            step("ask panel back to normal: toolbar shown again", (fb3["wide"] as? Bool) == false && (web()["dhide"] as? Bool) == false && (web()["dtoolShown"] as? Bool) == true,
+                 "wide=\(fb3["wide"] ?? "nil") hidden=\(web()["dhide"] ?? "nil")")
+        } else {
+            step("ask panel enlarged: toolbar hidden or clear of the panel", false, "panel not open or no enlarge button: \(fb0)")
+            step("ask panel back to normal: toolbar shown again", false, "skipped")
+        }
+        cmd("closeall"); settle(1.0)
 
         // ---- 清空 ----
         let n0 = count(), v2a = v2()
@@ -471,15 +523,23 @@ final class ShotsUITests: XCTestCase {
                  "sure=\(web()["clearSure"] ?? "nil") count=\(count()) v2=\(v2()) toolEvs=\(web()["toolEvs"] ?? "nil")")
             Thread.sleep(forTimeInterval: 4.5)   // 等确认态自己过期
         }
-        clearConfirmed("clear tap 2: native and old draft both 0") { waitCount(0, 1) == 0 && v2() == 0 }
+        clearTwice("clear tap 1", "clear tap 2: native and old draft both 0") { waitCount(0, 1) == 0 && v2() == 0 }
         cmd("finger on")
         write("stroke after clear", (z.x0, z.ys[2]), (z.x1, z.ys[2] + 10))
-        clearConfirmed("second clear tap 2") { waitCount(0, 1) == 0 }
+        clearTwice("second clear tap 1", "second clear tap 2") { waitCount(0, 1) == 0 }
         tool1("undo", "undo #1: back to the stroke written after first clear", keepsCount: false) { waitCount(1, 1) == 1 && v2() == 0 }
         tool1("undo", "undo #2: that stroke undone", keepsCount: false) { waitCount(0, 1) == 0 && v2() == 0 }
         tool1("undo", "undo #3: first clear undone, old draft back", keepsCount: false) { waitCount(n0, 1) == n0 && v2() == v2a }
         // 清空后马上杀掉重启
-        clearConfirmed("clear before kill tap 2") { waitCount(0, 1) == 0 }
+        // 撤销清空后马上杀掉：撤销那一下也马上存了（四.5）
+        clearTwice("undo-clear-kill: clear tap 1", "undo-clear-kill: clear tap 2") { waitCount(0, 1) == 0 }
+        tool1("undo", "undo-clear-kill: undo the clear", keepsCount: false) { waitCount(n0, 1) == n0 && v2() == v2a }
+        app.terminate()
+        launch()
+        _ = tapToggle(); settle(1.5)
+        step("undo clear then kill + relaunch: strokes back", isOpen() && count() == n0 && v2() == v2a, "count=\(count()) (want \(n0)) v2=\(v2()) (want \(v2a))")
+        cmd("finger on")
+        clearTwice("clear before kill tap 1", "clear before kill tap 2") { waitCount(0, 1) == 0 }
         app.terminate()
         launch()
         _ = tapToggle(); settle(1.5)
@@ -494,7 +554,7 @@ final class ShotsUITests: XCTestCase {
         _ = switchTo("b", "2009-02"); _ = switchTo("a", "2009-01")   // 先在线打开过 2009-02：离线时只能打开 iPad 上存过的题
         settle(1.0)
         _ = http("_offline")
-        clearConfirmed("offline clear tap 2") { v2() == 0 }
+        clearTwice("offline clear tap 1", "offline clear tap 2") { v2() == 0 }
         let sw1 = switchTo("b", "2009-02"), sw2 = switchTo("a", "2009-01")
         step("offline: switch away and back by real taps, old draft stays cleared", v2() == 0 && !sw1.contains("WRONG") && !sw2.contains("WRONG"), "\(sw1) | \(sw2) v2=\(v2())")
         _ = http("_online")
@@ -503,15 +563,66 @@ final class ShotsUITests: XCTestCase {
         let srv = http("draft?id=2009-01")
         step("online again: cleared old draft uploaded", v2() == 0 && srv.contains("\"s\": []"), "v2=\(v2()) server=\(srv.prefix(120))")
 
+        // ---- 三.1 旧稿晚到（假服务故意晚 5 秒回）：加载中挪纸，回来后取景窗不跳回；加载中清空，回来的旧稿一起清 ----
+        _ = http("_resetdrafts"); _ = http("_slowdraft?ms=5000")
+        app.terminate(); launch()
+        _ = tapToggle(); settle(0.3)
+        let ld1 = (web()["loading"] as? Bool) == true, nv0 = nview()
+        z = zone()
+        drag((z.x0 + 40, z.ys[2]), (z.x0 + 140, z.ys[2] + 90), velocity: 300, press: 0.05, hold: 0.3)   // 只认笔：单指挪纸
+        let ld2 = (web()["loading"] as? Bool) == true, nv1 = nview()
+        Thread.sleep(forTimeInterval: 5.5)
+        let nv2 = nview(), wv = web()["V"] as? [Double] ?? []
+        let panned = nv0.count == 3 && nv1.count == 3 && (abs(nv1[0] - nv0[0]) > 10 || abs(nv1[1] - nv0[1]) > 10)
+        let follows = wv.count == 3 && nv2.count == 3 && abs(wv[0] - nv2[0]) < 1 && abs(wv[1] - nv2[1]) < 1 && abs(wv[2] - nv2[2]) < 0.001
+        step("old draft arrives late after a pan: view kept, old draft shown and follows canvas",
+             ld1 && ld2 && panned && nv1 == nv2 && follows && v2() == 2,
+             "loading at open=\(ld1) after pan=\(ld2) native view \(nv0)->\(nv1)->\(nv2) web V=\(wv) v2=\(v2())")
+        app.terminate(); launch()
+        _ = tapToggle(); settle(0.3)
+        let ld3 = (web()["loading"] as? Bool) == true
+        clearTwice("slow old draft: clear tap 1", "slow old draft: clear tap 2") { true }
+        let ld4 = (web()["loading"] as? Bool) == true
+        Thread.sleep(forTimeInterval: 5.5)
+        let srvS = http("draft?id=2009-01")
+        step("old draft arrives after a clear: cleared too and written back", ld3 && ld4 && v2() == 0 && srvS.contains("\"s\": []"),
+             "loading at open=\(ld3) after clear=\(ld4) v2=\(v2()) server=\(srvS.prefix(120))")
+        tool1("undo", "slow old draft: undo the clear brings it back", keepsCount: false) { Thread.sleep(forTimeInterval: 0.5); return v2() == 2 }
+        _ = http("_slowdraft?ms=0")
+
+        // ---- 三.2 清空过的旧稿离线时不回来；三.3 离线清空的连上后自动补传 ----
+        _ = http("_resetdrafts")
+        app.terminate(); launch(); _ = tapToggle(); settle(1.5)
+        clearTwice("cache test online: clear tap 1", "cache test online: clear tap 2") { v2() == 0 }
+        settle(1.5)   // 写回电脑（这时 App 应把离线缓存里这题的旧稿也换成清空后的）
+        app.terminate(); _ = http("_offline"); launch(); _ = tapToggle(); settle(2.0)
+        step("cleared online, killed, opened offline: old draft stays cleared", v2() == 0, "v2=\(v2())")
+        _ = http("_online"); _ = http("_resetdrafts")
+        app.terminate(); launch(); _ = tapToggle(); settle(1.5)   // 在线打开一次：缓存里是 2 条
+        step("cache test: old draft back on server and in cache", v2() == 2, "v2=\(v2())")
+        _ = http("_offline")
+        clearTwice("cache test offline: clear tap 1", "cache test offline: clear tap 2") { v2() == 0 }
+        _ = http("_online")
+        Thread.sleep(forTimeInterval: 14)   // App 离线时每 8 秒探一次电脑；探到就补发记录、让网页补传旧稿（不重开草稿纸）
+        let srvA = http("draft?id=2009-01")
+        step("offline clear uploaded automatically when back online (no reopen)", srvA.contains("\"s\": []"), "server=\(srvA.prefix(120))")
+        app.terminate(); _ = http("_offline"); launch(); _ = tapToggle(); settle(2.0)
+        step("cleared offline, uploaded, opened offline again: stays cleared", v2() == 0, "v2=\(v2())")
+        _ = http("_online"); _ = http("_resetdrafts")
+        app.terminate(); launch(); _ = tapToggle(); settle(1.5)
+        cmd("finger on")
+
         // ---- 收起后 200 毫秒内点页面选项要生效；写完一笔马上收起再开，那一笔还在 ----
         z = zone()
         write("stroke before quick close", (z.x0, z.ys[1]), (z.x1, z.ys[1] + 10))
         let keepP = prints()
         let k1 = web()["clk"] as? Int ?? -1
+        let beatOpen = (native()["beat"] as? Bool) == true
         _ = tapRect(wbtn("close"))
         Thread.sleep(forTimeInterval: 0.15)
         _ = tapRect(web()["opt"] as? [Double])
         settle(1.0)
+        step("main-thread heartbeat runs only while the draft is open", beatOpen && (native()["beat"] as? Bool) == false, "open=\(beatOpen) closed=\(native()["beat"] ?? "nil")")
         step("close then tap page option within 200ms: option gets the click", !isOpen() && (web()["clk"] as? Int ?? -1) > k1, "open=\(isOpen()) page clicks \(k1)->\(web()["clk"] ?? "nil")")
         _ = tapToggle(); settle(1.5)
         step("reopen: strokes kept", isOpen() && prints() == keepP, "count=\(count())")
@@ -575,6 +686,14 @@ final class ShotsUITests: XCTestCase {
         let logged = (native()["pencilLogged"] as? Bool) == true
         step("pencil double tap handler: switches once, toolbar follows, logged", tb != ta && tool().hasPrefix(ta == "eraser" ? "eraser" : "ink") && logged,
              "web tool \(tb)->\(ta) native=\(tool())")
+        // 主线程 ≥250ms 卡顿：次数、最长
+        let il = ((try? String(contentsOf: outDir.appendingPathComponent(name + ".ink.log"), encoding: .utf8)) ?? "").split(separator: "\n")
+        let gaps = il.compactMap { l -> Int? in
+            guard let r = l.range(of: "main thread blocked ") else { return nil }
+            let t = l[r.upperBound...]; guard let p = t.firstIndex(of: "+") else { return nil }
+            return Int(t[t.index(after: p)...].prefix { $0.isNumber })
+        }
+        mainStats[o] = ["count": gaps.count, "maxMs": gaps.max() ?? 0, "over1s": gaps.filter { $0 >= 1000 }.count]
         // 被取消的触摸：整个方向跑下来（含几次重启）一次都不许有
         let cl = Array(cancelLines().dropFirst(0).filter { !setupCancels.contains($0) })
         let nNative = cl.filter { $0.hasPrefix("native touch cancelled") }.count

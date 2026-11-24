@@ -61,7 +61,12 @@ class H(http.server.SimpleHTTPRequestHandler):
         p, q = u.path, parse_qs(u.query)
         if p == "/draft":
             i = (q.get("id") or [""])[0]
+            if STATE.get("slowdraft") and not i.startswith("pk_"):
+                time.sleep(STATE["slowdraft"] / 1000.0)   # 测试用：旧稿故意晚回
             return self.reply({"id": i, "doc": DRAFTS.get(i)})
+        if p == "/_slowdraft":   # ?ms=2000 让 GET /draft 晚回；ms=0 恢复
+            STATE["slowdraft"] = int((q.get("ms") or ["0"])[0] or 0)
+            return self.reply({"slowdraft": STATE["slowdraft"]})
         if p == "/status":
             return self.reply({"watcher": {"online": True}, "cli": {"ok": True}, "queue": 0})
         if p in ("/feedback",):

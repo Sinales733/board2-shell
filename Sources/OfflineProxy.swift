@@ -417,9 +417,21 @@ final class OfflineProxy: NSObject, WKURLSchemeHandler {
                 self.succeeded()
                 let http = resp as? HTTPURLResponse
                 let type = (http?.allHeaderFields.first { ($0.key as? String)?.lowercased() == "content-type" }?.value as? String) ?? "application/json"
+                if path == "/draft", http?.statusCode == 200 { self.refreshDraftCache(body) }
                 reply(http?.statusCode ?? 200, String(data: data ?? Data(), encoding: .utf8) ?? "", type)
             }
         }.resume()
+    }
+
+    /// 草稿写上电脑以后，把离线用的 GET /draft?id=<题号> 那条缓存换成刚写上去的这份（格式和电脑回的一样：{id, doc}）。
+    /// 不换的话：清空后写上电脑、网页删了本机那份，下次离线打开同一题会读到缓存里清空前的旧稿。
+    private func refreshDraftCache(_ body: Data) {
+        guard let o = try? JSONSerialization.jsonObject(with: body) as? [String: Any], let id = o["id"] as? String,
+              var comps = URLComponents(string: "b2://x/draft") else { return }
+        comps.queryItems = [URLQueryItem(name: "id", value: id)]
+        guard let q = comps.percentEncodedQuery, let url = OfflineProxy.pageURL(forPath: "/draft?" + q),
+              let data = try? JSONSerialization.data(withJSONObject: ["id": id, "doc": o["doc"] ?? NSNull()]) else { return }
+        store.write(OfflineProxy.cacheKey(for: url), type: "application/json; charset=utf-8", data: data)
     }
 
     // MARK: - 补发

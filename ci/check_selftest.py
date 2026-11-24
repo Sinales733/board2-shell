@@ -84,8 +84,39 @@ for t in ("night", "day"):
         check("1234" in (v.get("sum") or "") and "888" in (v.get("sum") or ""), f"抽屉 {o}-{t}：没用大数字测 {v.get('sum')}")
 
 ink = load("inktest.json")
-steps = {st.get("name"): st for st in (ink.get("steps") or [])}
 names = [n.strip() for n in open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "ink_steps.txt"), encoding="utf-8") if n.strip()]
+check(len(names) == len(set(names)), f"步骤名单里有重名：{sorted({n for n in names if names.count(n) > 1})}")
+
+
+def stepmap(doc, label):
+    """步骤名 → 步骤；同一个名字出现两次就报错（后一个会把前一个盖掉，失败会被藏起来）"""
+    out, dup = {}, []
+    for st in (doc.get("steps") or []):
+        n = st.get("name")
+        if n in out:
+            dup.append(n)
+        out[n] = st
+    check(not dup, f"{label}：步骤重名 {sorted(set(dup))}")
+    return out
+
+
+def cancel_check(doc, label):
+    """被取消的触摸：直接看计数，不靠那一步自己的 ok；主线程卡顿：打印次数、最长"""
+    for o in ("portrait", "landscape"):
+        cs = (doc.get("cancels") or {}).get(o)
+        check(isinstance(cs, dict), f"{label} 被取消的触摸 {o}：没有统计")
+        if isinstance(cs, dict):
+            n = (cs.get("nativeTouchCancelled") or 0) + (cs.get("webPointerCancel") or 0) + (cs.get("webTouchCancel") or 0)
+            setup = cs.get("setupResizeDrag") or []
+            print(f"{label} 被取消的触摸 {o}：原生 {cs.get('nativeTouchCancelled')}、网页 pointercancel {cs.get('webPointerCancel')}、touchcancel {cs.get('webTouchCancel')}"
+                  + (f"（另有测试拖窗口缩放把手时被系统收走的 {len(setup)} 条，不计入）" if setup else ""))
+            check(n == 0, f"{label} {o}：有被取消的触摸 {n} 次：{(cs.get('lines') or [])[:4]}")
+        ms = (doc.get("mainThread") or {}).get(o)
+        if isinstance(ms, dict):
+            print(f"{label} 主线程 ≥250ms 卡顿 {o}：{ms.get('count')} 次，最长 {ms.get('maxMs')} ms，≥1 秒 {ms.get('over1s')} 次")
+
+
+steps = stepmap(ink, "全屏")
 for o in ("portrait", "landscape"):
     for n in names:
         if o == "landscape" and n.startswith("eraser: pixels"):   # 逐像素比画面只在竖屏做
@@ -99,17 +130,13 @@ for o in ("portrait", "landscape"):
                 print(f"（环境限制，不计入）竖屏全屏：{st.get('note')}")
                 continue
             bad.append(f"真实触摸写字 {o}: {n}：{st.get('note')}")
-for o in ("portrait", "landscape"):
-    cs = (ink.get("cancels") or {}).get(o)
-    check(isinstance(cs, dict), f"被取消的触摸 {o}：inktest.json 里没有统计")
-    if isinstance(cs, dict):
-        print(f"被取消的触摸 {o}：原生 {cs.get('nativeTouchCancelled')}、网页 pointercancel {cs.get('webPointerCancel')}、touchcancel {cs.get('webTouchCancel')}")
+cancel_check(ink, "全屏")
 extra = [k for k in steps if k.split(": ", 1)[-1] not in names]
 check(not extra, f"真实触摸写字：名单外的步骤 {extra}")
 
 # 窗口模式那一遍（iPadOS 26 用户可以把 App 开成窗口）：整套同样必须全过，坐标按窗口框换算
 inkw = load("inktest-windowed.json")
-stw = {st.get("name"): st for st in (inkw.get("steps") or [])}
+stw = stepmap(inkw, "窗口模式")
 WN = "app runs in a window (windowed pass)"
 for o in ("portrait", "landscape"):
     for n in names:
@@ -124,11 +151,7 @@ for o in ("portrait", "landscape"):
                 print(f"（记录）窗口模式横屏：{st.get('note')}")
                 continue
             bad.append(f"窗口模式 {o}: {n2}：{st.get('note')}")
-    cs = (inkw.get("cancels") or {}).get(o)
-    check(isinstance(cs, dict), f"窗口模式 被取消的触摸 {o}：没有统计")
-    if isinstance(cs, dict):
-        print(f"窗口模式 被取消的触摸 {o}：原生 {cs.get('nativeTouchCancelled')}、网页 pointercancel {cs.get('webPointerCancel')}、touchcancel {cs.get('webTouchCancel')}"
-              f"（另有测试拖窗口缩放把手时被系统收走的 {len(cs.get('setupResizeDrag') or [])} 条，不计入：{(cs.get('setupResizeDrag') or [])[:3]}）")
+cancel_check(inkw, "窗口模式")
 extraw = [k for k in stw if k.split(": ", 1)[-1] not in names + [WN]]
 check(not extraw, f"窗口模式：名单外的步骤 {extraw}")
 

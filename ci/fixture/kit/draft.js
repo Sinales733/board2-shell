@@ -52,6 +52,10 @@
      小弹层开合、拖手柄松手、转屏立刻报位置；清空确认气泡吞掉触摸；清空和 App 的撤销一一对应（每次清空记一份，换题、收起清掉）；
      旧稿写回电脑失败先存本机、连上再补传，两次写按先后排队；进入确认态 300 毫秒内的第二下不算；换题取消确认态；
      放不下时工具条先收紧、再折成两列；缩放比例按钮回到 100% 并回到有笔迹的地方（App 里把新笔迹的范围也算上）；键盘弹出时位置按可见区域换算；键盘、读屏点的 click（detail=0）不被吃掉。
+     v12（2026-11-24，配 App 1.8，第二次复审后）：旧稿晚到时不覆盖加载期间用户做的事（挪过纸不重置取景、清空过就连回来的一起清、写的字接在后面）；
+     加载期间 App 摆过取景窗就不再按旧稿重摆；离线清空的旧稿在 App 告诉"连上了 / 回到前台"时自动补传（先对时间，电脑那份更新就不传）；
+     本机存不下时留在内存里补传；问答面板放大后放不下工具条时整个收起（不再折成多列）；报给 App 的工具条位置用算出来的目标位置（不等过渡结束）；
+     问答面板、抽屉、提示条一出现 / 消失立刻报；旧版 App（B2Native.v < 4）不藏网页的草稿纸按钮；键盘弹着时旧稿按可见区域错开。
      工具条按钮在手指 / 笔抬起（pointerup）时就生效，不等浏览器合成的 click：模拟器里实测，刚在 App 的画布上写完字，
      第一下点工具条的 click 要晚将近 2 秒才到（App 1.8 测试日志），1.7 真机上工具条“点了好久才动”也是这个样子。 */
 (function () {
@@ -111,7 +115,7 @@
     + '<div class="dpop dmore" data-p="more"><button class="dfin" data-a="finger" role="switch"><span></span><i></i></button></div>'
     + '<div class="dpop dsure" data-p="sure" aria-hidden="true"><span></span></div>';
   const T = (a) => tool.querySelector(`[data-a="${a}"]`);
-  if (NI()) { const st = document.createElement('style'); st.textContent = '#draftBtn{visibility:hidden!important}'; document.head.appendChild(st); }   // 原生笔迹：草稿纸按钮用 App 的（盖在同一处），这颗只占位
+  if (NI() && (+window.B2Native.v || 0) >= 4) { const st = document.createElement('style'); st.textContent = '#draftBtn{visibility:hidden!important}'; document.head.appendChild(st); }   // 旧版 App（v < 4）没有自己的按钮，不能藏   // 原生笔迹：草稿纸按钮用 App 的（盖在同一处），这颗只占位
   function mount() { document.body.appendChild(root); placeBtn(); document.body.appendChild(tool); watchFb(); labels(); paintTool(); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount); else mount();
 
@@ -152,7 +156,11 @@
   const vvOff = () => { const v = window.visualViewport; return v ? [v.offsetLeft || 0, v.offsetTop || 0] : [0, 0]; };
   function aboveRects() {
     const o = vvOff(), out = [], add = (el) => { if (!el) return; const r = el.getBoundingClientRect(); if (r.width > 0 && r.height > 0) out.push([r.left - o[0], r.top - o[1], r.width, r.height]); };
-    add(tool); if (!NI()) add(btn); tool.querySelectorAll('.dpop.on').forEach(add); add($('.toast.on'));
+    if (!tool.classList.contains('dhide')) {
+      if (D.toolGoal && !tool.classList.contains('moving')) { const g = D.toolGoal; out.push([g[0] - o[0], g[1] - o[1], g[2], g[3]]); }   // 过渡还没走完也报它要到的地方
+      else add(tool);
+    }
+    if (!NI()) add(btn); tool.querySelectorAll('.dpop.on').forEach(add); add($('.toast.on'));
     ABOVE.forEach((k) => { const el = $(k); if (el && el.classList.contains('on')) add(el); });
     return out;
   }
@@ -167,7 +175,7 @@
     } catch (e) {}
     const m = { k: 'state', open: D.open, id: D.open ? D.id : null, tool: ui.tool, color: ui.color, finger: !!ui.finger, theme: theme(), view: { x: V.x, y: V.y, z: V.z }, rects: D.open ? aboveRects() : [],
       btn: [br.left - vvOff()[0], br.top - vvOff()[1], br.width, br.height], covered, labels: { open: U('ui.draft.open'), close: U('ui.draft.close') } };
-    const js = JSON.stringify(m); if (js === lastSent && !force) return; lastSent = js; tell(m);
+    const js = JSON.stringify(m); if (js === lastSent && !force) return; lastSent = js; m.ts = Date.now(); tell(m);   // ts：发出时刻（App 量"晚到"用），不参与比较
   }
   function flash(a) { const b = T(a); tool.querySelectorAll('.flash').forEach((x) => x.classList.remove('flash')); void b.offsetWidth; b.classList.add('flash'); clearTimeout(b._ft); b._ft = setTimeout(() => b.classList.remove('flash'), 700); }
 
@@ -192,14 +200,18 @@
     const W = innerWidth, H = innerHeight, g = fbGoal();
     let top = 8, bot = H - 8, right = W;
     if (g) { if (g.x != null) right = g.x; else bot = Math.min(bot, g.y - 8); }
-    /* 放不下（竖屏问答面板开着、屏幕矮）：先收紧（间距、透明度竖条变短），还放不下就折成两列；按钮点击区不变（44） */
-    tool.classList.remove('dtight', 'dwrap'); tool.style.removeProperty('--dmax');
+    /* 放不下（竖屏问答面板开着、屏幕矮）：先收紧（间距、透明度竖条变短）；还放不下（比如问答面板放大了）就整个收起，
+       面板缩回去再出现。收起时不报给 App（App 的开关按钮还在，照样能收起草稿纸）。不折成多列：多列会盖住面板上的按钮。 */
+    tool.classList.remove('dtight');
     if (tool.offsetHeight > bot - top) tool.classList.add('dtight');
-    if (tool.offsetHeight > bot - top) { tool.classList.add('dwrap'); tool.style.setProperty('--dmax', Math.max(120, bot - top) + 'px'); }
+    const hide = tool.offsetHeight > bot - top;
+    if (hide && !tool.classList.contains('dhide')) closePops();
+    tool.classList.toggle('dhide', hide);
     const h = tool.offsetHeight, w = tool.offsetWidth;
-    const x = ui.side === 'l' ? 10 : right - w - 10, y = Math.max(top, Math.min(bot - h, ui.y * H - h / 2));
-    tool.style.setProperty('--dx', Math.round(x) + 'px'); tool.style.setProperty('--dy', Math.round(y) + 'px'); tool.dataset.side = ui.side;
-    sync(); setTimeout(sync, 400);   // 立刻报一次（目标位置），滑到位以后（draft.css 的过渡）再报一次
+    const x = Math.round(ui.side === 'l' ? 10 : right - w - 10), y = Math.round(Math.max(top, Math.min(bot - h, ui.y * H - h / 2)));
+    tool.style.setProperty('--dx', x + 'px'); tool.style.setProperty('--dy', y + 'px'); tool.dataset.side = ui.side;
+    D.toolGoal = [x, y, w, h];
+    sync();   // 报的就是算出来的目标位置（aboveRects 用 D.toolGoal），不用等过渡走完
   }
   /* 全局按钮放进问答气泡那一组（.fbx）的最左边，和气泡一起排版、一起移动；被问答面板 / 原卷浮层盖住时自然被盖住（层的高低在 draft.css）。
      没有题的空页只留它（shell.css）；.fbx 不在（别的页面）才放在 body 右上角。 */
@@ -209,11 +221,20 @@
     else if (btn.parentNode !== document.body) { document.body.appendChild(btn); Object.assign(btn.style, { position: 'fixed', right: '16px', top: '12px' }); }
   }
   setInterval(() => { layout(); watchId(); sync(); }, 400);
+  /* 纸上面那几层（问答面板、抽屉、原卷、提示条）一出现 / 消失就立刻报给 App，不等上面 400 毫秒的轮询 */
+  if (NI()) {
+    const isAbove = (t) => t && t.nodeType === 1 && (ABOVE.some((k) => t.matches(k)) || t.classList.contains('toast'));
+    new MutationObserver((ms) => { if (D.open && ms.some((m) => isAbove(m.target))) sync(); })
+      .observe(document.documentElement, { attributes: true, attributeFilter: ['class'], subtree: true });
+    new MutationObserver(() => { if (D.open) sync(); }).observe(document.body || document.documentElement, { childList: true });
+  }
   /* 诊断（App 里）：网页主线程有没有被卡住——每 50 毫秒打一次拍，两拍之间隔了 250 毫秒以上就记下"从几点起卡了多久"；
      草稿纸自己的几个函数（重画、报状态）超过 30 毫秒也记一笔。App 的状态探针读 window.__b2perf。 */
   if (NI()) {
-    const P = window.__b2perf = { gaps: [], slow: [] }; let beat = performance.now();
-    setInterval(() => { const n = performance.now(); if (n - beat > 250) { P.gaps.push(Math.round(performance.timeOrigin + beat) + '+' + Math.round(n - beat)); if (P.gaps.length > 12) P.gaps.shift(); } beat = n; }, 50);
+    const P = window.__b2perf = { gaps: [], slow: [] }; let beat = performance.now(), bt = 0;
+    /* 只在草稿纸开着时打拍（open / close 里开关） */
+    P.start = () => { if (bt) return; beat = performance.now(); bt = setInterval(() => { const n = performance.now(); if (n - beat > 250) { P.gaps.push(Math.round(performance.timeOrigin + beat) + '+' + Math.round(n - beat)); if (P.gaps.length > 12) P.gaps.shift(); } beat = n; }, 50); };
+    P.stop = () => { clearInterval(bt); bt = 0; };
     P.time = (name, f) => function () { const t0 = performance.now(); try { return f.apply(this, arguments); } finally { const d = performance.now() - t0; if (d > 30) { P.slow.push(name + '@' + Math.round(performance.timeOrigin + t0) + '+' + Math.round(d)); if (P.slow.length > 12) P.slow.shift(); } } };
   }
   (function hookId() {   // 原生笔迹：Board2.id / Board2.mock 一被改就立刻 watchId（不然换题后最长 0.4 秒内写的字会记到上一题）
@@ -247,11 +268,13 @@
   const keyNow = () => { const b = B(); return b && b.id && !b.mock ? b.id : '_common'; };
   async function open() {
     D.open = true; root.classList.add('on'); tool.classList.add('on', 'jump'); btn.classList.add('open'); labels();
+    if (window.__b2perf && __b2perf.start) __b2perf.start();
     size(); layout(); void tool.offsetWidth; tool.classList.remove('jump');   // 刚露出来：直接出现在该在的地方，不从左上角飞过去
     const k = keyNow(); if (k !== D.id || !D.doc) await load(k); render(); sync(true);
   }
   function close() {
     endTouchAll(); flush(); D.open = false; D.cur = null; closePops(); D.clears = [];
+    if (window.__b2perf && __b2perf.stop) __b2perf.stop();
     root.classList.remove('on'); tool.classList.remove('on'); btn.classList.remove('open'); labels(); sync(true);
   }
   btn.addEventListener('click', () => (D.open ? close() : open()));
@@ -291,7 +314,10 @@
   async function load(id) {
     const tok = ++D.tok;
     unsure(); D.clears = [];
-    D.id = id; D.doc = blank(); D.hist = []; applyDocView(); paintUndo();
+    /* 先放一张空的占位稿，等电脑那份回来（真机走局域网可能要好几百毫秒）。占位期间用户做的事（挪纸、清空、写字）回来后不许被盖掉 */
+    const ph = blank(); ph.ph = true;
+    D.id = id; D.doc = ph; D.hist = []; applyDocView(); paintUndo();
+    const v0 = { x: V.x, y: V.y, z: V.z };
     if (NI()) sync(true);   // 原生笔迹：换题立刻告诉 App，之后写的字记到新题
     const local = stored(LKEY + id, null);
     let srv = null;
@@ -304,21 +330,61 @@
     if (tok !== D.tok) return;
     const pick = local && local.doc && (!srv || (local.doc.t || 0) > (srv.t || 0)) ? local.doc : srv;
     const [doc, mig] = fix(pick ? JSON.parse(JSON.stringify(pick)) : null);
-    D.doc = doc; D.hist = []; bbs = new WeakMap();
-    D.dirty = !!(pick && ((pick === (local && local.doc) && D.server) || mig));   // 本机那份更新：待会儿补存到电脑上；旧格式迁移过来的：存成新格式
+    if (ph.cleared) {   // 加载中已经清空过：回来的旧稿算在那次清空里一起清掉（撤销那次清空时一起回来）
+      const rec = NI() ? D.clears.find((c) => c.ph === ph) : D.hist.find((h) => h.k === 'clear' && h.ph === ph);
+      if (rec) rec.s = doc.s.concat(rec.s);
+      doc.s = [];
+    }
+    doc.s = doc.s.concat(ph.s);   // 加载中写的（网页自己画的时候）接在后面
+    const moved = V.x !== v0.x || V.y !== v0.y || V.z !== v0.z;
+    D.doc = doc; bbs = new WeakMap();   // D.hist 保留：加载中的写字、清空照样能撤销
+    D.dirty = !!(pick && ((pick === (local && local.doc) && D.server) || mig)) || ph.s.length > 0 || !!ph.cleared;   // 本机那份更新 / 迁移 / 加载中改过：待会儿存
     D.migrated = mig ? { from: id, strokes: doc.s.length } : null;
-    if (NI() && pick && pick === (local && local.doc)) putV2();   // App 里：本机那份（清空后没写上电脑的）更新：补传
-    applyDocView(); paintUndo(); if (D.dirty) later();
+    if (NI() && ((pick && pick === (local && local.doc)) || ph.cleared)) putV2();   // App 里：本机那份更新、或加载中清空过：写回电脑
+    /* 加载中取景窗动过（自己挪了纸，或 App 已经按它存的取景窗摆好并告诉了这里）：不按旧稿再摆一次；没动过才用旧稿存的取景窗（App 没存过时它跟着用） */
+    if (moved) { if (!NI()) setView(V.x, V.y, V.z, true); } else applyDocView();
+    paintUndo(); if (D.dirty) later();
   }
   /* App 里写回旧稿（只有清空 / 撤销清空时）：按先后排队一个一个写；写不上（离线、电脑没开）先存本机，下次打开这道题时本机那份更新就补传 */
   let v2q = Promise.resolve();
+  const memPend = new Map();   // 本机存不下（localStorage 满了 / 不让存）的待传旧稿，留在内存里补传
+  function postV2(id, doc) {
+    return fetch('draft', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, doc }) })
+      .then((r) => {
+        if (!r.ok) return;
+        const l = stored(LKEY + id, null); if (l && l.doc && l.doc.t === doc.t) try { localStorage.removeItem(LKEY + id); } catch (e) {}
+        const m = memPend.get(id); if (m && m.t === doc.t) memPend.delete(id);
+      })
+      .catch(() => {});
+  }
   function putV2() {
     if (!D.doc || !D.id) return;
-    const id = D.id, doc = JSON.parse(JSON.stringify(D.doc)); doc.t = Date.now();
-    store(LKEY + id, { doc });   // 先存本机：电脑那头没写成也不会回来
-    v2q = v2q.then(() => fetch('draft', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, doc }) })
-      .then((r) => { if (r.ok) { const l = stored(LKEY + id, null); if (l && l.doc && l.doc.t === doc.t) try { localStorage.removeItem(LKEY + id); } catch (e) {} } })
-      .catch(() => {}));
+    const id = D.id, doc = JSON.parse(JSON.stringify(D.doc)); doc.t = Date.now(); delete doc.ph; delete doc.cleared;
+    if (!store(LKEY + id, { doc, pend: 1 })) memPend.set(id, doc);   // 先存本机：电脑那头没写成也不会回来；本机也存不下就记在内存里
+    else memPend.delete(id);
+    v2q = v2q.then(() => postV2(id, doc));
+  }
+  /* App 告诉"连上电脑了 / 回到前台了"时：把所有待传的旧稿按时间先后补传。先取电脑那份对时间，电脑那份更新（别处改过）就不传、丢掉本机的 */
+  function retryPending() {
+    if (!NI()) return;
+    const items = [];
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i); if (!k || k.indexOf(LKEY) !== 0) continue;
+        const v = stored(k, null); if (v && v.pend && v.doc) items.push({ id: k.slice(LKEY.length), doc: v.doc });
+      }
+    } catch (e) {}
+    memPend.forEach((doc, id) => { if (!items.some((x) => x.id === id)) items.push({ id, doc }); });
+    items.sort((a, b) => (a.doc.t || 0) - (b.doc.t || 0));
+    items.forEach(({ id, doc }) => {
+      v2q = v2q.then(() => fetch('draft?id=' + encodeURIComponent(id) + '&t=' + Date.now()).then((r) => (r.ok ? r.json() : null)).catch(() => null)
+        .then((j) => {
+          if (j === null) return;   // 还是连不上：留着下次
+          const srv = j && j.doc;
+          if (srv && (srv.t || 0) >= (doc.t || 0)) { try { localStorage.removeItem(LKEY + id); } catch (e) {} memPend.delete(id); return; }
+          return postV2(id, doc);
+        }));
+    });
   }
   function later(ms) { clearTimeout(D.saveT); D.saveT = setTimeout(flush, ms || 1200); }
   function keepLocal(id, doc) { if (!store(LKEY + id, { doc })) return; if (!D.warned && B() && B().api) { D.warned = true; B().api.toast(U('ui.draft.local')); } }
@@ -625,7 +691,8 @@
   let evs = [];
   const wallOf = (e) => Math.round(performance.timeOrigin + e.timeStamp);
   ['touchstart', 'pointerdown', 'touchend', 'pointerup', 'click'].forEach((n) => tool.addEventListener(n, (e) => {
-    if (n === 'touchstart' || (n === 'pointerdown' && !evs.some((x) => x.startsWith('ts:')))) evs = [];
+    const lk = evs.length ? evs[evs.length - 1].slice(0, 2) : '';
+    if ((n === 'touchstart' || n === 'pointerdown') && lk !== 'ts' && lk !== 'pd') evs = [];   // 一下新的按下：不管 touchstart 和 pointerdown 谁先到
     evs.push((n === 'touchstart' ? 'ts' : n === 'pointerdown' ? 'pd' : n === 'touchend' ? 'te' : n === 'pointerup' ? 'pu' : 'cl') + ':' + wallOf(e) + '/' + Date.now() + '@' + Math.round(e.clientX || (e.changedTouches && e.changedTouches[0] ? e.changedTouches[0].clientX : 0)));
     window.__b2evs = evs;
   }, { capture: true, passive: true }));
@@ -672,7 +739,8 @@
     upDone = 0; act(e);
   });
   function act(e) {
-    const c = e.target.closest('[data-c]'); if (c) { ui.color = c.dataset.c; ui.tool = 'pen'; saveUI(); paintTool(); closePops(); return; }
+    const c = e.target.closest('[data-c]');
+    if (c) { if (NI()) tell({ k: 'tap', a: 'c-' + c.dataset.c, t: Date.now(), d: downAt, ev: evs.slice() }); ui.color = c.dataset.c; ui.tool = 'pen'; saveUI(); paintTool(); closePops(); return; }
     const b = e.target.closest('[data-a]'); if (!b || b.disabled) return;
     const a = b.dataset.a, doc = D.doc;
     if (NI()) tell({ k: 'tap', a, t: Date.now(), d: downAt, ev: evs.slice() });   // App 记诊断日志：这一下的事件时间线和 act() 执行时刻
@@ -693,9 +761,11 @@
       unsure(); closePops();
       if (NI()) {   // App 里：App 清它的新笔迹（登记一步撤销）；这里清垫底的旧笔迹并写回电脑。每次清空都记一份（没有旧稿就记空的），和 App 的撤销一一对应
         tell({ k: 'clear' });
-        D.clears.push({ id: D.id, s: doc ? doc.s : [] });
-        if (doc && doc.s.length) { doc.s = []; putV2(); render(); }
-      } else if (doc && doc.s.length) { D.hist.push({ k: 'clear', s: doc.s }); doc.s = []; D.dirty = true; later(); render(); }
+        D.clears.push({ id: D.id, s: doc ? doc.s : [], ph: doc && doc.ph ? doc : null });
+        if (doc && doc.ph) { doc.cleared = true; doc.s = []; render(); }   // 旧稿还没回来：记下"清空过"，回来时一起清、一起写回
+        else if (doc && doc.s.length) { doc.s = []; putV2(); render(); }
+      } else if (doc && doc.ph) { D.hist.push({ k: 'clear', s: doc.s, ph: doc }); doc.cleared = true; doc.s = []; render(); }
+      else if (doc && doc.s.length) { D.hist.push({ k: 'clear', s: doc.s }); doc.s = []; D.dirty = true; later(); render(); }
     }
     else if (a === 'finger') { ui.finger = !ui.finger; saveUI(); paintTool(); }
     else if (a === 'close') close();
@@ -731,6 +801,14 @@
     g.addEventListener('pointerup', stop); g.addEventListener('pointercancel', stop);
   })();
 
+  /* App 告诉的取景窗是屏幕坐标；键盘弹着时页面在屏幕上错开 visualViewport.offset，旧稿画在页面里要加回去 */
+  let NAT = null;
+  function natView() {
+    if (!NAT) return; const o = vvOff();
+    V.x = NAT.x + o[0]; V.y = NAT.y + o[1]; V.z = NAT.z; paintZoom(); if (D.open) want();
+  }
+  if (window.visualViewport) { visualViewport.addEventListener('resize', natView); visualViewport.addEventListener('scroll', natView); }
+
   /* ---------- Apple Pencil 双击（原生套壳派发） ---------- */
   addEventListener('b2-pencil-doubletap', () => {
     if (!D.open) { ui.tool = 'pen'; saveUI(); paintTool(); open().then(() => flash('pen')); return; }
@@ -750,7 +828,11 @@
       },
       at(v) {
         if (!v || !isFinite(+v.x) || !isFinite(+v.y) || !(+v.z > 0)) return;
-        V.x = +v.x; V.y = +v.y; V.z = +v.z; paintZoom(); if (D.open) want();
+        NAT = { x: +v.x, y: +v.y, z: +v.z }; natView();
       },
+      /* App：连上电脑了 / 回到前台了，补传待传的旧稿 */
+      retryPending,
+      /* App：画布上笔落下了（掌根先压在工具条上、笔后落下）：工具条上还没抬起的那一下作废 */
+      penDown() { downEl = null; },
     } : null };
 })();
