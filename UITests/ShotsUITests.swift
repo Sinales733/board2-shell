@@ -388,6 +388,13 @@ final class ShotsUITests: XCTestCase {
                  "sure=\(web()["clearSure"] ?? "nil") count=\(count()) toolEvs=\(web()["toolEvs"] ?? "nil") toolClk=\(web()["toolClk"] ?? "nil")")
             if (web()["clearSure"] as? Bool) == true { Thread.sleep(forTimeInterval: 4.5) }   // 失败时让确认态自己过期，不连累后面
         }
+        if let c = center(wbtn("clear")) {   // 双击清空：第一下进确认态，紧跟着的第二下（<300 毫秒）不算，不清
+            at(c.0, c.1).doubleTap()
+            settle()
+            step("double tap clear: second tap within 300ms ignored, nothing cleared", (web()["clearSure"] as? Bool) == true && count() == n0 && v2() == v2a,
+                 "sure=\(web()["clearSure"] ?? "nil") count=\(count()) v2=\(v2()) toolEvs=\(web()["toolEvs"] ?? "nil")")
+            Thread.sleep(forTimeInterval: 4.5)   // 等确认态自己过期
+        }
         clearConfirmed("clear tap 2: native and old draft both 0") { waitCount(0, 1) == 0 && v2() == 0 }
         cmd("finger on")
         write("stroke after clear", (z.x0, z.ys[2]), (z.x1, z.ys[2] + 10))
@@ -440,6 +447,12 @@ final class ShotsUITests: XCTestCase {
 
         // ---- 换题（真点页面上的题号和抽屉里的题）再换回来：逐笔指纹一样 ----
         let pa = prints()
+        _ = tapRect(wbtn("clear")); settle(0.3)
+        let sureT0 = Date(), sureOn = (web()["clearSure"] as? Bool) == true
+        let closedForSwitch = tapToggle(); settle(0.5)
+        let sureMs = Int(Date().timeIntervalSince(sureT0) * 1000)
+        step("clear confirm, then close to switch question: confirm dropped at once", sureOn && closedForSwitch && (web()["clearSure"] as? Bool) == false && (web()["sureShown"] as? Bool) == false && sureMs < 3000,
+             "sure before=\(sureOn) after=\(web()["clearSure"] ?? "nil") bubble=\(web()["sureShown"] ?? "nil") checked \(sureMs)ms after confirm (timeout is 4000)")
         let s1 = switchTo("b", "2009-02")
         let pb0 = prints()
         z = zone()

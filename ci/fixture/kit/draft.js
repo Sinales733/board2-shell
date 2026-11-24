@@ -51,7 +51,7 @@
      v11（2026-11-24，配 App 1.8，复审后）：抬起时手指已滑出按钮不算；工具条外一有新的按下就不再拦 click，只拦按下点附近、600 毫秒内的；
      小弹层开合、拖手柄松手、转屏立刻报位置；清空确认气泡吞掉触摸；清空和 App 的撤销一一对应（每次清空记一份，换题、收起清掉）；
      旧稿写回电脑失败先存本机、连上再补传，两次写按先后排队；进入确认态 300 毫秒内的第二下不算；换题取消确认态；
-     放不下时工具条先收紧、再折成两列；缩放比例按钮回到 100% 并回到有笔迹的地方（App 里把新笔迹的范围也算上）；键盘弹出时位置按可见区域换算。
+     放不下时工具条先收紧、再折成两列；缩放比例按钮回到 100% 并回到有笔迹的地方（App 里把新笔迹的范围也算上）；键盘弹出时位置按可见区域换算；键盘、读屏点的 click（detail=0）不被吃掉。
      工具条按钮在手指 / 笔抬起（pointerup）时就生效，不等浏览器合成的 click：模拟器里实测，刚在 App 的画布上写完字，
      第一下点工具条的 click 要晚将近 2 秒才到（App 1.8 测试日志），1.7 真机上工具条“点了好久才动”也是这个样子。 */
 (function () {
@@ -664,9 +664,11 @@
   /* 清空确认气泡：触摸落在它上面不传到下面的页面、也不清空 */
   { const su = tool.querySelector('.dsure'); ['pointerdown', 'pointerup', 'click', 'touchstart'].forEach((n) => su.addEventListener(n, (e) => { e.stopPropagation(); if (n !== 'touchstart' && n !== 'pointerdown') e.preventDefault(); })); }
   tool.addEventListener('click', (e) => {
-    if (touchPending && performance.now() - touchPending < 2500) { touchPending = 0; return; }   // 触摸补来的：只吃这一个，之后键盘、读屏的点击照常
+    /* 键盘（回车 / 空格）、读屏点的 click：detail 是 0，一律照常生效，不被下面两条吃掉 */
+    if (e.detail === 0) { act(e); return; }
+    if (touchPending && performance.now() - touchPending < 2500) { touchPending = 0; return; }   // 触摸补来的：只吃这一个
     touchPending = 0;
-    if (upDone && performance.now() - upDone < 600) { upDone = 0; return; }
+    if (upDone && performance.now() - upDone < 600) { upDone = 0; return; }   // 鼠标：pointerup 已经生效过的那一下
     upDone = 0; act(e);
   });
   function act(e) {

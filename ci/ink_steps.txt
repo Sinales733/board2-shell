@@ -34,6 +34,7 @@ clear first tap: confirm state only
 tap on confirm bubble: nothing cleared, page not clicked
 clear confirm times out
 press clear, slide out, release: nothing happens
+double tap clear: second tap within 300ms ignored, nothing cleared
 clear tap 2: native and old draft both 0
 stroke after clear
 second clear tap 2
@@ -51,6 +52,7 @@ close then tap page option within 200ms: option gets the click
 reopen: strokes kept
 stroke then close immediately
 stroke then close immediately: stroke kept after reopen
+clear confirm, then close to switch question: confirm dropped at once
 stroke on 2009-02
 switch back by real taps: same strokes point by point
 other question kept its strokes point by point
