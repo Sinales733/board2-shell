@@ -186,7 +186,8 @@ final class ShellViewController: UIViewController {
         };
         var rec = function (s) { c.last.push(s); if (c.last.length > 10) c.last.shift(); post(s); };
         addEventListener('pointercancel', function (e) { c.pc++; rec('web pointercancel ' + e.pointerType + ' ' + desc(e)); }, true);
-        addEventListener('touchcancel', function (e) { c.tc++; rec('web touchcancel ' + desc(e)); }, true);
+        addEventListener('touchcancel', function (e) { c.tc++; rec('web touchcancel ' + desc(e));
+          setTimeout(function () { try { var s = window.Kit && Kit.draft && Kit.draft.dbg ? Kit.draft.dbg() : null; window.webkit.messageHandlers.b2shell.postMessage({ k: 'clicklog', v: 'web after cancel toolbar state ' + JSON.stringify(s) }); } catch (x) {} }, 50); }, true);
         // 云端测试（截图模式）才有：每个 click 记一行（压力测试量"抬手→网页收到 click"）
         addEventListener('click', function (e) { if (!window.__b2shotmode) return; try { window.webkit.messageHandlers.b2shell.postMessage({ k: 'clicklog', v: 'web click ' + desc(e) }); } catch (x) {} }, true);
       } catch (e) {}
@@ -985,9 +986,9 @@ extension ShellViewController {
         v2:d&&d.doc?d.doc.s.length:-1,clk:window.__b2clk,tag:r(document.getElementById('tag')),cells:{a:r(document.querySelector('#nv .pane:not(.out) .cell[data-id="2009-01"]')),b:r(document.querySelector('#nv .pane:not(.out) .cell[data-id="2009-02"]'))},drawer:!!(document.getElementById('drawer')&&document.getElementById('drawer').classList.contains('on')),lastClicks:window.__b2lc,toolEvs:window.__b2evs,toolClk:window.__b2toolclk,perf:window.__b2perf?{gaps:__b2perf.gaps,slow:__b2perf.slow}:null,aboveOn:['#fbp','#drawer','#sheet','#weak','#akPg','#akHere','.toast'].filter(function(k){var e=document.querySelector(k);return e&&e.classList.contains('on');}),stem:r(document.getElementById('stem')),dtoolShown:!!(t&&t.offsetWidth),dtool:r(t),draftBtn:r(document.getElementById('draftBtn')),
         clearSure:!!(cl&&cl.classList.contains('sure')),sureShown:!!(su&&su.classList.contains('on')),undoDisabled:!!(q('[data-a="undo"]')||{}).disabled,
         btn:{grip:r(q('[data-a="grip"]')),pen:r(q('[data-a="pen"]')),eraser:r(q('[data-a="eraser"]')),color:r(q('[data-a="color"]')),undo:r(q('[data-a="undo"]')),
-        clear:r(cl),sure:r(su),zoom:r(q('[data-a="zoom"]')),more:r(q('[data-a="more"]')),close:r(q('[data-a="close"]')),red:r(q('.dpal [data-c="red"]')),blue:r(q('.dpal [data-c="blue"]')),finger:r(q('[data-a="finger"]'))},
+        clear:r(cl),sure:r(su),zoom:r(q('[data-a="zoom"]')),more:r(q('[data-a="more"]')),close:r(q('[data-a="close"]')),red:r(q('.dpal [data-c="red"]')),blue:r(q('.dpal [data-c="blue"]')),green:r(q('.dpal [data-c="green"]')),ink:r(q('.dpal [data-c="ink"]')),finger:r(q('[data-a="finger"]'))},
         pal:!!(q('.dpal')&&q('.dpal').classList.contains('on')),moreOpen:!!(q('.dmore')&&q('.dmore').classList.contains('on')),
-        loading:!!(d&&d.D.doc&&d.D.doc.ph),dhide:!!(t&&t.classList.contains('dhide')),
+        loading:!!(d&&d.D.doc&&d.D.doc.ph),toolDown:d&&d.dbg?d.dbg():null,dhide:!!(t&&t.classList.contains('dhide')),
         fb:(function(){var f=document.getElementById('fbp');return {on:!!(f&&f.classList.contains('on')),wide:!!(f&&f.classList.contains('wide')),panel:r(f),wideBtn:r(document.getElementById('fbWide'))};})()});})()
         """
         webView.evaluateJavaScript(js) { [weak self] res, _ in

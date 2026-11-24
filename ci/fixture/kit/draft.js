@@ -52,7 +52,7 @@
      小弹层开合、拖手柄松手、转屏立刻报位置；清空确认气泡吞掉触摸；清空和 App 的撤销一一对应（每次清空记一份，换题、收起清掉）；
      旧稿写回电脑失败先存本机、连上再补传，两次写按先后排队；进入确认态 300 毫秒内的第二下不算；换题取消确认态；
      放不下时工具条先收紧、再折成两列；缩放比例按钮回到 100% 并回到有笔迹的地方（App 里把新笔迹的范围也算上）；键盘弹出时位置按可见区域换算；键盘、读屏点的 click（detail=0）不被吃掉。
-     v12（2026-11-24，配 App 1.8，第二次复审后）：旧稿晚到时不覆盖加载期间用户做的事（挪过纸不重置取景、清空过就连回来的一起清、写的字接在后面）；
+     v12（2026-11-24，配 App 1.8，第二次复审后；触摸被系统收走时工具条上的按下作废）：旧稿晚到时不覆盖加载期间用户做的事（挪过纸不重置取景、清空过就连回来的一起清、写的字接在后面）；
      加载期间 App 摆过取景窗就不再按旧稿重摆；离线清空的旧稿在 App 告诉"连上了 / 回到前台"时自动补传（先对时间，电脑那份更新就不传）；
      本机存不下时留在内存里补传；问答面板放大后放不下工具条时整个收起（不再折成多列）；报给 App 的工具条位置用算出来的目标位置（不等过渡结束）；
      问答面板、抽屉、提示条一出现 / 消失立刻报；旧版 App（B2Native.v < 4）不藏网页的草稿纸按钮；键盘弹着时旧稿按可见区域错开。
@@ -700,6 +700,8 @@
   }, { capture: true, passive: true }));
   const btnOf = (t) => (t && t.closest ? t.closest('[data-c], [data-a]') : null);
   let touchPending = 0;   // 手指 / 笔在工具条上按下过：浏览器随后在按下点补的那一个 click 不算（实测 touchend 拦不住它）
+  /* 触摸被系统收走（来通知、系统手势、切到别的 App）：这一下按下作废，不留"按着"的状态，下一下照常一次生效 */
+  tool.addEventListener('pointercancel', () => { downEl = null; touchPending = 0; }, true);
   tool.addEventListener('pointerdown', (e) => { downEl = btnOf(e.target); downAt = Date.now(); upDone = 0; if (e.pointerType !== 'mouse') touchPending = performance.now(); }, true);
   tool.addEventListener('pointerup', (e) => {
     const el = btnOf(e.target);   // 触摸有隐式捕获：手指滑出去以后 target 还是按下的那颗按钮，所以要看抬起点
@@ -820,6 +822,8 @@
 
   window.Kit = window.Kit || {};
   Kit.draft = { D, ui, V, open, close, flush, render, fix, homeView, setView, get doc() { return D.doc; }, get gesture() { return G; },
+    /* 诊断：工具条上有没有"按着没松"的残留（测试在触摸被取消之后看） */
+    dbg: () => ({ down: !!downEl, touchPending: !!touchPending }),
     /* App 调：at 是 App 画布现在的取景窗 {x, y, z}（屏幕 = 纸面 × z + (x, y)），旧 v2 笔迹跟着它画 */
     native: NI() ? {
       update(o) { NV.undo = !!(o && o.undo); NV.bounds = o && Array.isArray(o.bounds) ? o.bounds : null; paintUndo(); },

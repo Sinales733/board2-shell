@@ -109,7 +109,7 @@ def cancel_check(doc, label):
             n = (cs.get("nativeTouchCancelled") or 0) + (cs.get("webPointerCancel") or 0) + (cs.get("webTouchCancel") or 0)
             setup = cs.get("setupResizeDrag") or []
             print(f"{label} 被取消的触摸 {o}：原生 {cs.get('nativeTouchCancelled')}、网页 pointercancel {cs.get('webPointerCancel')}、touchcancel {cs.get('webTouchCancel')}"
-                  + (f"（另有测试拖窗口缩放把手时被系统收走的 {len(setup)} 条，不计入）" if setup else ""))
+                  + (f"（另有测试自己造的取消 {len(setup)} 条——拖窗口缩放把手、按住时打开别的 App——不计入）" if setup else ""))
             check(n == 0, f"{label} {o}：有被取消的触摸 {n} 次：{(cs.get('lines') or [])[:4]}")
         ms = (doc.get("mainThread") or {}).get(o)
         if isinstance(ms, dict):

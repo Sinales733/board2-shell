@@ -82,16 +82,30 @@ final class StressUITests: XCTestCase {
         let winF = app.windows.firstMatch.frame
         if toggle.waitForExistence(timeout: 3) { toggle.tap() }
         Thread.sleep(forTimeInterval: 1.5)
-        cmd("mark stress-toolbar-start")
         let btns = web()["btn"] as? [String: Any] ?? [:]
-        let order = ["pen", "eraser", "color", "clear", "zoom", "more", "close"]
+        let order = ["pen", "eraser", "color", "swatch", "clear", "zoom", "more", "close"]
         var cs: [String: XCUICoordinate] = [:]
-        for k in order { if let c = coord(btns[k] as? [Double]) { cs[k] = c } }
+        for k in order where k != "swatch" { if let c = coord(btns[k] as? [Double]) { cs[k] = c } }
+        // 色块的位置：先开一次调色板量好（调色板贴着颜色按钮弹出，位置不变），再点"墨"关上（这两下在计数开始之前）
+        var sw: [String: XCUICoordinate] = [:]
+        let colors = ["red", "blue", "green", "ink"]
+        if let cc = cs["color"] {
+            cc.tap(); Thread.sleep(forTimeInterval: 1.0)
+            let b2 = web()["btn"] as? [String: Any] ?? [:]
+            for c in colors { if let x = coord(b2[c] as? [Double]) { sw[c] = x } }
+            sw["ink"]?.tap(); Thread.sleep(forTimeInterval: 1.0)
+        }
+        cmd("mark stress-toolbar-start")
         var sent: [String: Int] = [:]
         let rounds = windowed ? 100 : 300   // 窗口模式每下要等 SpringBoard 空闲 1.5–1.8 秒：样本量是全屏的三分之一（主会话裁定）
-        if cs.count == order.count {
-            for _ in 0..<rounds {
+        if cs.count == order.count - 1 && sw.count == colors.count {
+            for i in 0..<rounds {
                 for k in order {
+                    if k == "swatch" {   // 颜色按钮刚把调色板打开：轮流点四种颜色（每一下都要画布真的换上颜色 ≤300ms）
+                        let c = colors[i % colors.count]
+                        sw[c]!.tap(); sent["c-" + c, default: 0] += 1; pause()
+                        continue
+                    }
                     cs[k]!.tap(); sent[k, default: 0] += 1; pause()
                     if k == "close" { toggle.tap(); sent["reopen", default: 0] += 1; pause() }
                 }
@@ -117,7 +131,7 @@ final class StressUITests: XCTestCase {
         cmd("mark stress-cells-end")
         Thread.sleep(forTimeInterval: 2.0)
         let rec: [String: Any] = ["cfg": cfg, "window": "\(winF)", "sentToolbar": sent, "sentCells": cellSent, "setupResizeDrag": setup,
-                                  "btnFound": Array(cs.keys).sorted()]
+                                  "btnFound": Array(cs.keys).sorted() + Array(sw.keys).sorted()]
         if let d = try? JSONSerialization.data(withJSONObject: rec, options: [.prettyPrinted, .sortedKeys]) {
             try? d.write(to: outDir.appendingPathComponent(name + ".sent.json"))
         }

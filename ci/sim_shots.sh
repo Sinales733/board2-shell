@@ -75,6 +75,16 @@ if command -v ffmpeg > /dev/null; then
   ffmpeg -loglevel error -i "$OUT/motion.mp4" -vf "fps=6,scale=900:-1" "$OUT/motion-frames/f%04d.jpg" || true
 fi
 
+# 主动造取消用：测试写 ~/b2shots/interrupt.req，这里 1 秒后把"设置" App 开到前台（测试那边正按住一个按钮不放）
+( while true; do
+    if [ -f "$HOME/b2shots/interrupt.req" ]; then
+      rm -f "$HOME/b2shots/interrupt.req"; sleep 1.0
+      xcrun simctl launch "$UDID" com.apple.Preferences > /dev/null 2>&1 && echo "interrupt: launched Settings at $(date -u +%H:%M:%S.%N)" >> "$OUT/interrupt.log"
+    fi
+    sleep 0.1
+  done ) &
+WATCH=$!
+
 # 真实触摸写字（草稿纸）：手指拖动写字、橡皮、撤销、收起再开、换题、双指缩放
 xcodebuild test-without-building "${COMMON[@]}" -only-testing:Board2ShotsUITests/ShotsUITests/testInk > "$OUT/xctest-ink.log" 2>&1
 RC_INK=$?
@@ -106,6 +116,7 @@ xcrun simctl spawn "$UDID" log show --last 120m --style compact --info --debug \
 set +e
 
 kill "$STUB" 2>/dev/null
+kill "$WATCH" 2>/dev/null
 grep -E "error:" "$OUT/xcbuild.log" | head -n 30
 grep -E "^SHOT |error:|Test Case .*(passed|failed)|\*\* TEST" "$OUT/xctest-motion.log" "$OUT/xctest.log" | head -n 200
 grep -E "^INK " "$OUT/xctest-ink.log" | head -n 80

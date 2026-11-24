@@ -19,6 +19,8 @@ color red right after opening palette
 red stroke
 new stroke is red
 toolbar undo removes last stroke
+system takes a held press (another app opened): cancelled, not clicked, no stuck press
+after a cancelled press: same button works with one tap
 pencilOnly by default
 finger tap on toolbar under pencilOnly
 finger tap pen under pencilOnly

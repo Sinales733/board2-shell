@@ -380,8 +380,13 @@ final class InkLayer: NSObject {
     /// 启动时把要用到的工具都造好（笔 4 种颜色 + 位图橡皮），慢的那一下发生在启动、用户还没点的时候
     private func buildTools() {
         let t0 = ProcessInfo.processInfo.systemUptime
-        for k in ["eraser"] + Array(InkLayer.colors.keys).sorted() { _ = cachedTool(k) }
-        InkDiag.shared.log("tools built \(tools.count) took \(Int((ProcessInfo.processInfo.systemUptime - t0) * 1000))ms")
+        var each: [String] = []
+        for k in ["eraser"] + Array(InkLayer.colors.keys).sorted() {
+            let t1 = ProcessInfo.processInfo.systemUptime
+            _ = cachedTool(k)
+            each.append("\(k)=\(Int((ProcessInfo.processInfo.systemUptime - t1) * 1000))")
+        }
+        InkDiag.shared.log("tools built \(tools.count) took \(Int((ProcessInfo.processInfo.systemUptime - t0) * 1000))ms (\(each.joined(separator: " ")))")
     }
 
     /// 预热：给画布换一次位图橡皮再换回来（启动时做一次）

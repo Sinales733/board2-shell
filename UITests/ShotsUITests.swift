@@ -429,6 +429,24 @@ final class ShotsUITests: XCTestCase {
         let c6 = count()
         tool1("undo", "toolbar undo removes last stroke", keepsCount: false) { waitCount(c6 - 1, 1) == c6 - 1 }
 
+        // ---- 主动造取消：按住"笔"不放的时候，宿主机把"设置" App 开到前台（ci/sim_shots.sh 里的 interrupt.req 看门），系统收走这一下；
+        //      回来以后：这一下没被算成点击、工具条上没有残留的按下、同一个按钮点一下就生效（1.7"点不动"那一类状态残留）----
+        do {
+            let before = cancelLines().count, act0 = lastTap()["act"] as? Int ?? 0
+            try? "1".write(to: outDir.appendingPathComponent("interrupt.req"), atomically: true, encoding: .utf8)
+            if let c = center(wbtn("pen")) { mark("press-interrupted") { at(c.0, c.1).press(forDuration: 3.0) } }
+            app.activate(); settle(2.5)
+            let newL = Array(cancelLines().dropFirst(before))
+            setupCancels += newL   // 测试自己造的取消：单独记，不算进"不许有被取消的触摸"
+            let gotCancel = newL.contains { $0.hasPrefix("native touch cancelled") }
+            let noAct = (lastTap()["act"] as? Int ?? 0) == act0
+            let td = web()["toolDown"] as? [String: Any] ?? [:]
+            let clean = (td["down"] as? Bool) == false && (td["touchPending"] as? Bool) == false
+            step("system takes a held press (another app opened): cancelled, not clicked, no stuck press", gotCancel && noAct && clean && isOpen(),
+                 "cancel lines=\(newL.count) \(newL.first.map { String($0.prefix(160)) } ?? "none") clicked=\(!noAct) toolbar state=\(td) open=\(isOpen())")
+            tool1("pen", "after a cancelled press: same button works with one tap") { tool().hasPrefix("ink") }
+        }
+
         // ---- 只认笔（真机规则）：手指点工具条、点纸、挪纸、缩放 ----
         cmd("finger auto")
         step("pencilOnly by default", (native()["policy"] as? String) == "pencilOnly", "policy=\(native()["policy"] ?? "nil")")
@@ -719,7 +737,7 @@ final class ShotsUITests: XCTestCase {
         let nNative = cl.filter { $0.hasPrefix("native touch cancelled") }.count
         let nPC = cl.filter { $0.hasPrefix("web pointercancel") }.count, nTC = cl.filter { $0.hasPrefix("web touchcancel") }.count
         cancelStats[o] = ["nativeTouchCancelled": nNative, "webPointerCancel": nPC, "webTouchCancel": nTC, "lines": Array(cl.prefix(30)),
-                          "setupResizeDrag": setupCancels]   // 测试拖窗口缩放把手那一下被系统收走的记录（不计入）
+                          "setupResizeDrag": setupCancels]   // 测试自己造的取消（拖窗口缩放把手、主动打断）：单独记，不计入
         step("no cancelled touches (native touchesCancelled, web pointercancel/touchcancel)", cl.isEmpty,
              "native=\(nNative) pointercancel=\(nPC) touchcancel=\(nTC) \(cl.prefix(6).joined(separator: " | "))")
         app.terminate()
