@@ -128,7 +128,8 @@ jobs:
     needs: [build]
     if: ${{ !startsWith(github.event.head_commit.message, '诊断') }}
     runs-on: macos-26
-    timeout-minutes: 150
+    # 窗口模式下 XCUITest 每点一下要等 SpringBoard 空闲 1.5–1.8 秒（r31 窗口竖屏：2642 下用了 8382 秒），3000 下要将近 3 小时
+    timeout-minutes: 330
     strategy:
       fail-fast: false
       matrix:
