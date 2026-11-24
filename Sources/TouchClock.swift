@@ -8,6 +8,10 @@ enum TouchClock {
     /// 最近一下结束的触摸：墙上时间毫秒、落点、落在哪个视图上
     private(set) static var lastEnd: (ms: Int64, x: Int, y: Int, view: String)?
     private(set) static var lastBegin: (ms: Int64, x: Int, y: Int, view: String)?
+    /// 系统发来的、阶段是"取消"的触摸，开机以来一共几下（云端测试要求是 0）
+    private(set) static var cancelled = 0
+    /// 每个手势识别器上次记下的状态：只在它进入 began / ended（认出来了）/ cancelled / failed 时记一行
+    private static var grState: [ObjectIdentifier: Int] = [:]
 
     static func install() {
         let c: AnyClass = UIApplication.self
@@ -34,18 +38,65 @@ enum TouchClock {
         case .ended, .cancelled:
             lastEnd = rec
             InkDiag.shared.log("touch \(t.phase == .ended ? "ended" : "cancelled") \(kind) t=\(ms) at \(rec.1),\(rec.2) view=\(v)")
+            if t.phase == .cancelled {
+                cancelled += 1
+                let line = "native touch cancelled #\(cancelled) \(kind) t=\(ms) at \(rec.1),\(rec.2) view=\(v) grs=[\(grs(t))]"
+                InkDiag.shared.log(line)
+                if ShotMode.isOn { ShotMode.hostWrite(".cancel.log", line, append: true) }
+            }
         default:
             break
         }
     }
 }
 
+extension TouchClock {
+    fileprivate static func stateName(_ s: UIGestureRecognizer.State) -> String {
+        switch s {
+        case .possible: return "possible"
+        case .began: return "began"
+        case .changed: return "changed"
+        case .ended: return "ended"
+        case .cancelled: return "cancelled"
+        case .failed: return "failed"
+        @unknown default: return "?"
+        }
+    }
+    /// 这下触摸上挂着的手势识别器（类名、挂在哪个视图上、状态）
+    fileprivate static func grs(_ t: UITouch) -> String {
+        (t.gestureRecognizers ?? []).map { g in
+            "\(type(of: g))@\(g.view.map { String(describing: type(of: $0)) } ?? "nil"):\(stateName(g.state))"
+        }.joined(separator: ",")
+    }
+    /// 分发完这批触摸以后：手势识别器有进入 began / ended / cancelled 的就记一行（谁认出了手势、谁会把触摸从视图手里拿走）
+    fileprivate static func afterDispatch(_ ts: Set<UITouch>) {
+        var seen = Set<ObjectIdentifier>()
+        for t in ts {
+            for g in t.gestureRecognizers ?? [] {
+                let id = ObjectIdentifier(g)
+                if seen.contains(id) { continue }
+                seen.insert(id)
+                let s = g.state.rawValue
+                if grState[id] != s {
+                    grState[id] = s
+                    if g.state == .began || g.state == .ended || g.state == .cancelled {
+                        InkDiag.shared.log("gesture \(type(of: g))@\(g.view.map { String(describing: type(of: $0)) } ?? "nil") -> \(stateName(g.state)) cancelsTouchesInView=\(g.cancelsTouchesInView)")
+                    }
+                }
+            }
+            if t.phase == .began { InkDiag.shared.log("touch grs at began: [\(grs(t))]") }
+        }
+        if grState.count > 400 { grState.removeAll() }
+    }
+}
+
 extension UIApplication {
     @objc func b2_sendEvent(_ e: UIEvent) {
-        if e.type == .touches, InkDiag.shared.touchLogging || ShotMode.isOn, let ts = e.allTouches {
-            for t in ts where t.phase == .began || t.phase == .ended || t.phase == .cancelled { TouchClock.record(t) }
-        }
+        let on = e.type == .touches && (InkDiag.shared.touchLogging || ShotMode.isOn)
+        let ts = on ? (e.allTouches ?? []) : []
+        for t in ts where t.phase == .began || t.phase == .ended || t.phase == .cancelled { TouchClock.record(t) }
         b2_sendEvent(e)   // 换过实现：这里调的是系统原来的 sendEvent
+        if on { TouchClock.afterDispatch(ts) }
     }
 }
 

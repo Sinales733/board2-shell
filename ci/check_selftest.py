@@ -94,7 +94,16 @@ for o in ("portrait", "landscape"):
         if st is None:
             bad.append(f"真实触摸写字 {o}: 少了一步「{n}」")
         elif st.get("ok") is not True:
+            if o == "portrait" and n == "app runs full screen" and st.get("env") is True \
+                    and (steps.get("landscape: app runs full screen") or {}).get("ok") is True:
+                print(f"（环境限制，不计入）竖屏全屏：{st.get('note')}")
+                continue
             bad.append(f"真实触摸写字 {o}: {n}：{st.get('note')}")
+for o in ("portrait", "landscape"):
+    cs = (ink.get("cancels") or {}).get(o)
+    check(isinstance(cs, dict), f"被取消的触摸 {o}：inktest.json 里没有统计")
+    if isinstance(cs, dict):
+        print(f"被取消的触摸 {o}：原生 {cs.get('nativeTouchCancelled')}、网页 pointercancel {cs.get('webPointerCancel')}、touchcancel {cs.get('webTouchCancel')}")
 extra = [k for k in steps if k.split(": ", 1)[-1] not in names]
 check(not extra, f"真实触摸写字：名单外的步骤 {extra}")
 

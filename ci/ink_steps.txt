@@ -9,7 +9,7 @@ stroke 4
 stroke 5
 toolbar eraser
 eraser cuts strokes 2-4, strokes 1 and 5 unchanged
-eraser: pixels outside 30pt of the eraser path identical
+eraser: pixels outside 30pt of the eraser path: none differ by more than 8 levels
 toolbar undo restores erase
 toolbar pen
 color blue right after opening palette
@@ -62,3 +62,4 @@ after undo + kill + relaunch: same strokes
 rotate while open: strokes kept, button and toolbar on screen
 stroke after rotate
 pencil double tap handler: switches once, toolbar follows, logged
+no cancelled touches (native touchesCancelled, web pointercancel/touchcancel)

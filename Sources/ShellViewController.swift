@@ -139,19 +139,54 @@ final class ShellViewController: UIViewController {
 
     /// 讲解页选题抽屉顶上那排小图标里加一个"设置"（在昼夜按钮左边），点了叫出原生设置面板。
     /// 只在 App 里有（Safari 里没有 b2shell 就不加）；样式照网页 .thbtn。
-    /// 页面一开就先建好一个 AudioContext（不发声，系统让它先处于暂停），网页的音效第一次要它时直接给这一个：
+    /// 页面一开就先建好一个 AudioContext（不发声），网页的音效第一次要它时直接给这一个：
     /// 第一下点按时只需要 resume，不用当场建音频上下文。
+    /// 诊断：建它用了多久、建好时的状态、前 3 次 resume 同步占了多久、之后的状态，都发给 App 记进笔迹日志（"audio …"），
+    /// 真机上看这几行就知道预建有没有生效（WKWebView 设了 mediaTypesRequiringUserActionForPlayback = []，不受自动播放限制）。
     static let audioWarmJS = """
     (function () {
       try {
         var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+        var post = function (s) { try { window.webkit.messageHandlers.b2shell.postMessage({ k: 'audio', v: s }); } catch (e) {} };
+        var info = window.__b2ac = { made: -1, state: '', resume: [] };
         var pre = null;
-        var make = function () { if (!pre) { pre = new AC(); } return pre; };
+        var make = function () {
+          if (!pre) {
+            var t0 = performance.now(); pre = new AC(); info.made = Math.round(performance.now() - t0); info.state = pre.state;
+            post('audio warm: new AudioContext took ' + info.made + 'ms state=' + pre.state);
+            try { pre.addEventListener('statechange', function () { info.state = pre.state; post('audio state=' + pre.state); }); } catch (e) {}
+            var r0 = pre.resume;
+            pre.resume = function () {
+              var t = performance.now(), s0 = pre.state, p = r0.apply(pre, arguments), ms = Math.round(performance.now() - t);
+              if (info.resume.length < 3) { info.resume.push(ms); post('audio resume from ' + s0 + ' took ' + ms + 'ms (sync)'); }
+              return p;
+            };
+          }
+          return pre;
+        };
         var W = function () { return make(); };
         W.prototype = AC.prototype;
         window.AudioContext = W; if (window.webkitAudioContext) window.webkitAudioContext = W;
         var warm = function () { try { make(); } catch (e) {} };
         if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', warm); else warm();
+      } catch (e) {}
+    })();
+    """
+
+    /// 诊断：网页这边收到的 pointercancel / touchcancel（系统或手势把触摸收走时会有），计数、记最近 10 条，发给 App 记日志。
+    static let cancelJS = """
+    (function () {
+      try {
+        var c = window.__b2cancel = { pc: 0, tc: 0, last: [] };
+        var post = function (s) { try { window.webkit.messageHandlers.b2shell.postMessage({ k: 'cancel', v: s }); } catch (e) {} };
+        var desc = function (e) {
+          var t = e.target, n = t && t.nodeType === 1 ? (t.tagName.toLowerCase() + (t.id ? '#' + t.id : '') + (t.closest && t.closest('[data-a]') ? '[a=' + t.closest('[data-a]').dataset.a + ']' : '')) : String(t && t.nodeName);
+          var p = (e.changedTouches && e.changedTouches[0]) || e;
+          return n + ' at ' + Math.round(p.clientX || 0) + ',' + Math.round(p.clientY || 0) + ' t=' + Date.now();
+        };
+        var rec = function (s) { c.last.push(s); if (c.last.length > 10) c.last.shift(); post(s); };
+        addEventListener('pointercancel', function (e) { c.pc++; rec('web pointercancel ' + e.pointerType + ' ' + desc(e)); }, true);
+        addEventListener('touchcancel', function (e) { c.tc++; rec('web touchcancel ' + desc(e)); }, true);
       } catch (e) {}
     })();
     """
@@ -333,6 +368,7 @@ final class ShellViewController: UIViewController {
         // 网页的音效第一次被用到时（第一下点按）才建 AudioContext，会把网页主线程卡住几百毫秒到两秒多，
         // 那一下点工具条就要等这么久（1.8 复审时量出来的根因）。App 里改成页面一开就先建好，第一下点按只需 resume。
         config.userContentController.addUserScript(WKUserScript(source: ShellViewController.audioWarmJS, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        config.userContentController.addUserScript(WKUserScript(source: ShellViewController.cancelJS, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         config.userContentController.addUserScript(WKUserScript(source: InkLayer.flagScript,
                                                                 injectionTime: .atDocumentStart,
                                                                 forMainFrameOnly: true))
@@ -815,6 +851,12 @@ extension ShellViewController: WKScriptMessageHandler {
             let v = body["v"] as? String ?? ""
             NSLog("Board2Shell JS: %@", String(v.prefix(200)))
             if ShotMode.isOn { shotLog.append(v); if shotLog.count > 40 { shotLog.removeFirst() }; ShotMode.hostWrite(".log", v, append: true) }
+        case "audio":
+            InkDiag.shared.log(String((body["v"] as? String ?? "").prefix(200)))
+        case "cancel":
+            let v = String((body["v"] as? String ?? "").prefix(300))
+            InkDiag.shared.log(v)
+            if ShotMode.isOn { ShotMode.hostWrite(".cancel.log", v, append: true) }
         default:
             break
         }

@@ -24,7 +24,9 @@ xcrun simctl bootstatus "$UDID" -b
 # iPadOS 26 模拟器默认把 App 开在"窗口"里（缩小、带窗口按钮）。想办法切成全屏：关掉窗口化开关后重启模拟器。
 # 改前改后的 SpringBoard 设置都存下来，做不到时能看出原因。
 xcrun simctl spawn "$UDID" defaults read com.apple.springboard > "$OUT/springboard-before.txt" 2>&1 || true
-for k in SBChamoisWindowingEnabled SBWindowingEnabled SBMultitaskingWindowedAppsEnabled; do
+# SBChamoisWindowingEnabled + SBMedusaMultitaskingEnabled 是"设置 → 多任务与手势 → 全屏 App"写的两个键
+# （https://github.com/neonpixel-software/recipe-raccoon/pull/174 ：在设置里切换前后比对模拟器偏好得出）
+for k in SBChamoisWindowingEnabled SBMedusaMultitaskingEnabled SBWindowingEnabled SBMultitaskingWindowedAppsEnabled; do
   xcrun simctl spawn "$UDID" defaults write com.apple.springboard "$k" -bool NO || true
 done
 xcrun simctl shutdown "$UDID" || true
