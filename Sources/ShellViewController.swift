@@ -1199,8 +1199,17 @@ final class FetchBridge: NSObject, WKScriptMessageHandlerWithReply {
             replyHandler(["status": 400, "b64": "", "type": "text/plain"], nil); return
         }
         let method = (b["method"] as? String ?? "GET").uppercased()
+        // 诊断：草稿相关的请求记一行（网页发起→App 收到→电脑回来各用了多久），查"打开草稿纸后旧稿晚到"用
+        let isDraft = path.hasPrefix("/draft")
+        let t0 = ProcessInfo.processInfo.systemUptime
+        let tag = isDraft ? "\(method) \(String(path.prefix(60)))" : ""
+        if isDraft { InkDiag.shared.log("fetch \(tag) received from web") }
+        let done: (Int) -> Void = { status in
+            if isDraft { InkDiag.shared.log("fetch \(tag) status=\(status) took \(Int((ProcessInfo.processInfo.systemUptime - t0) * 1000))ms, replying to web") }
+        }
         if method == "GET" || method == "HEAD" {
             proxy.get(pathAndQuery: path) { status, data, type in
+                done(status)
                 replyHandler(["status": status, "b64": data.base64EncodedString(), "type": type], nil)
             }
             return
@@ -1208,6 +1217,7 @@ final class FetchBridge: NSObject, WKScriptMessageHandlerWithReply {
         let body = Data((b["body"] as? String ?? "").utf8)
         let headers = b["headers"] as? [String: String] ?? [:]
         proxy.post(pathAndQuery: path, method: method, headers: headers, body: body) { status, text, type in
+            done(status)
             replyHandler(["status": status, "b64": Data(text.utf8).base64EncodedString(), "type": type], nil)
         }
     }

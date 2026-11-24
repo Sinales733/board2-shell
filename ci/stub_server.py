@@ -44,7 +44,9 @@ class H(http.server.SimpleHTTPRequestHandler):
         super().end_headers()
 
     def log_message(self, fmt, *args):
-        sys.stderr.write("[stub] " + (fmt % args) + "\n")
+        # 带时刻（UTC，毫秒），和 App 日志的时间对得上
+        t = time.time()
+        sys.stderr.write("[stub] " + time.strftime("%H:%M:%S", time.gmtime(t)) + ".%03d " % int((t % 1) * 1000) + (fmt % args) + "\n")
 
     def reply(self, obj, code=200):
         b = json.dumps(obj, ensure_ascii=False).encode("utf-8")
