@@ -99,6 +99,15 @@ final class ShotsUITests: XCTestCase {
     /// 窗口模式那一遍（CI 把模拟器切回"窗口化 App"后再跑一遍 testInk，环境变量 B2_INK_WINDOWED=1）：
     /// 结果写 inktest-windowed.json，各文件名带 -windowed / inktestw-，"全屏"那一步换成"确实在窗口里"
     private let windowedPass = ProcessInfo.processInfo.environment["B2_INK_WINDOWED"] == "1"
+    /// 第一次换橡皮慢的诊断：变体名（App 用 -b2var 读），空 = 不是诊断
+    private let diagVar = ProcessInfo.processInfo.environment["B2_DIAG_VAR"] ?? ""
+
+    /// 诊断：只跑到第一次点橡皮（写 5 笔后），量 抬手→画布换上橡皮；结果追加到 eraserdiag.jsonl
+    func testEraserDiag() {
+        guard !diagVar.isEmpty else { return }
+        _ = http("_online")
+        _ = inkRun("portrait", .portrait)
+    }
 
     func testInk() {
         _ = http("_online")
@@ -146,7 +155,7 @@ final class ShotsUITests: XCTestCase {
             XCUIDevice.shared.orientation = ori
             for u in [readyURL, stateURL, cmdURL] { try? FileManager.default.removeItem(at: u) }
             app.launchEnvironment = ["B2_OUT": outDir.path, "B2_NAME": name]
-            app.launchArguments = ["-b2shot", "inktest", "-b2theme", "night", "-b2q", "2009-01", "-b2server", server]
+            app.launchArguments = ["-b2shot", "inktest", "-b2theme", "night", "-b2q", "2009-01", "-b2server", server] + (diagVar.isEmpty ? [] : ["-b2var", diagVar])
             app.launch()
             XCUIDevice.shared.orientation = ori
             let deadline = Date().addingTimeInterval(45)
@@ -329,6 +338,28 @@ final class ShotsUITests: XCTestCase {
         // ---- 橡皮：竖着擦过第 2、3、4 笔和垫底的两条旧稿；第 1、5 笔逐点不变；竖屏再比画面 ----
         let pre = prints()
         tool1("eraser", "toolbar eraser") { tool().hasPrefix("eraser") }
+        if !diagVar.isEmpty {
+            var rec: [String: Any] = ["variant": diagVar]
+            func sample(_ k: String) -> [String: Any] {
+                let lt = lastTap(), ta = native()["toolApply"] as? [String: Any] ?? [:]
+                let lift = lt["lift"] as? Int ?? 0, wall = ta["wall"] as? Int ?? 0
+                return ["tap": k, "liftToApplied": wall - lift, "assignMs": ta["assignMs"] ?? -1, "liftToAct": lt["liftToAct"] ?? -1]
+            }
+            var ss = [sample("eraser")]
+            _ = tapRect(wbtn("pen")); settle(1.0); ss.append(sample("pen"))
+            _ = tapRect(wbtn("eraser")); settle(1.0); ss.append(sample("eraser2"))
+            rec["samples"] = ss
+            rec["warm"] = native()["warm"] ?? [:]
+            rec["mainGaps"] = native()["mainGaps"] ?? []
+            if let d = try? JSONSerialization.data(withJSONObject: rec), let line = String(data: d, encoding: .utf8) {
+                let u = outDir.appendingPathComponent("eraserdiag.jsonl")
+                if let h = try? FileHandle(forWritingTo: u) { h.seekToEndOfFile(); h.write(Data((line + "\n").utf8)); try? h.close() }
+                else { try? (line + "\n").write(to: u, atomically: true, encoding: .utf8) }
+            }
+            print("ERASERDIAG \(rec)")
+            app.terminate()
+            return steps
+        }
         let ey0 = z.ys[1] - 30, ey1 = max(z.ys[3] + 30, 600)
         let shot0 = o == "portrait" ? XCUIScreen.main.screenshot().pngRepresentation : Data()
         drag((ex, ey0), (ex, ey1), velocity: 200)

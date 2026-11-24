@@ -56,6 +56,8 @@ final class InkLayer: NSObject {
     private var closeSeq = 0
     /// 第一次变脏的时刻（开机以来秒；0 = 不脏）：防抖最长等 5 秒
     private var firstDirtyAt: TimeInterval = 0
+    /// 最近一次给画布换上工具：哪个、墙上时刻（毫秒）、换这一句用了多久
+    private var lastToolApply: [String: Any] = [:]
     /// 抬笔了但 PencilKit 还没把这一笔交到画布上（drawingDidChange 没回来）：收起 / 换题先等它
     private var pendingStroke = false
     private var pendingSince: TimeInterval = 0
@@ -110,6 +112,7 @@ final class InkLayer: NSObject {
             canvas.trailingAnchor.constraint(equalTo: host.trailingAnchor)
         ])
         maskLayer.fillRule = .nonZero
+        if ShotVariant.on("warmlaunch") { DispatchQueue.main.async { self.warmEraser("launch") } }
         canvas.layer.mask = maskLayer
         canvas.drawingGestureRecognizer.addTarget(self, action: #selector(drawingGesture(_:)))
 
@@ -292,8 +295,23 @@ final class InkLayer: NSObject {
 
     // MARK: - 画布、工具盘的显示和收起
 
+    /// 诊断变体：先给画布换一次橡皮再换回来（看第一次换橡皮慢是不是一次性的准备工作）
+    private var warmed = false
+    private(set) var warmInfo: [String: Any] = [:]
+    private func warmEraser(_ whereName: String) {
+        guard !warmed else { return }
+        warmed = true
+        let saved = canvas.tool, t0 = ProcessInfo.processInfo.systemUptime
+        canvas.tool = PKEraserTool(.bitmap)
+        canvas.tool = saved
+        let ms = Int((ProcessInfo.processInfo.systemUptime - t0) * 1000)
+        warmInfo = ["where": whereName, "ms": ms, "strokes": canvas.drawing.strokes.count]
+        InkDiag.shared.log("eraser warm at \(whereName) took \(ms)ms strokes=\(canvas.drawing.strokes.count)")
+    }
+
     private func openUI() {
         InkDiag.shared.touchLogging = true
+        if ShotVariant.on("warmopen") { warmEraser("open") }
         canvas.isHidden = false
         tellWebView()
         tellUndo()
@@ -325,12 +343,15 @@ final class InkLayer: NSObject {
         finger = fg
         guard t != toolName || c != colorName else { return }
         toolName = t; colorName = c
+        let t0 = ProcessInfo.processInfo.systemUptime
         if t == "eraser" {
-            canvas.tool = PKEraserTool(.bitmap)
+            canvas.tool = ShotVariant.on("vector") ? PKEraserTool(.vector) : PKEraserTool(.bitmap)
         } else {
             canvas.tool = PKInkingTool(.pen, color: InkLayer.colors[c] ?? InkLayer.defaultInk, width: 2.4)
         }
-        InkDiag.shared.log("tool applied \(InkLayer.toolName(canvas.tool)) color=\(c)")
+        let ms = Int((ProcessInfo.processInfo.systemUptime - t0) * 1000)
+        lastToolApply = ["tool": t, "color": c, "wall": TouchClock.wall(ProcessInfo.processInfo.systemUptime), "assignMs": ms]
+        InkDiag.shared.log("tool applied \(InkLayer.toolName(canvas.tool)) color=\(c) assign=\(ms)ms")
     }
 
     /// 告诉网页：撤销能不能点（工具条的撤销按钮跟着亮 / 灰）。
@@ -635,7 +656,7 @@ final class InkLayer: NSObject {
         let tf = toggle.frame
         return ["count": canvas.drawing.strokes.count, "strokes": strokes, "prints": prints, "open": isOpen, "id": id ?? NSNull(),
                 "view": [Double(v.x), Double(v.y), Double(v.z)], "tool": InkLayer.toolName(canvas.tool),
-                "color": colorName, "canUndo": canvas.undoManager?.canUndo ?? false, "lastTap": lastTap, "pencilLogged": InkDiag.shared.contains("pencil double tap -> web"), "mainGaps": MainBeat.gaps, "mainSlow": MainBeat.slow, "lastColor": lastStrokeColor(),
+                "color": colorName, "canUndo": canvas.undoManager?.canUndo ?? false, "lastTap": lastTap, "toolApply": lastToolApply, "warm": warmInfo, "variant": ShotVariant.name, "pencilLogged": InkDiag.shared.contains("pencil double tap -> web"), "mainGaps": MainBeat.gaps, "mainSlow": MainBeat.slow, "lastColor": lastStrokeColor(),
                 "webBtn": [Double(webBtn.minX), Double(webBtn.minY), Double(webBtn.width), Double(webBtn.height)], "covered": webBtnCovered,
                 "passRects": canvas.passRects.map { [Double($0.minX), Double($0.minY), Double($0.width), Double($0.height)] },
                 "screen": [Double(host?.bounds.width ?? 0), Double(host?.bounds.height ?? 0)],

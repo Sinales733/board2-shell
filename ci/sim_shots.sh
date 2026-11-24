@@ -44,6 +44,23 @@ COMMON=(-project Board2Shell.xcodeproj -scheme Board2Shell -configuration Releas
 xcodebuild build-for-testing "${COMMON[@]}" > "$OUT/xcbuild.log" 2>&1
 echo "build-for-testing exit: $?"
 
+# 诊断轮：提交说明以"诊断"开头时只跑第一次换橡皮的诊断，跑完退出（不出包）
+if git log -1 --format=%s | grep -q '^诊断'; then
+  for v in base warmopen warmlaunch vector; do
+    xcrun simctl shutdown "$UDID" || true
+    xcrun simctl boot "$UDID" || true
+    xcrun simctl bootstatus "$UDID" -b
+    for i in 1 2 3; do
+      TEST_RUNNER_B2_DIAG_VAR=$v xcodebuild test-without-building "${COMMON[@]}" -only-testing:Board2ShotsUITests/ShotsUITests/testEraserDiag > "$OUT/xctest-diag-$v-$i.log" 2>&1
+      cp "$HOME/b2shots/inktest-portrait.ink.log" "$OUT/diag-$v-$i.ink.log" 2>/dev/null || true
+    done
+  done
+  kill "$STUB" 2>/dev/null
+  cp -R "$HOME/b2shots/." "$OUT/" 2>/dev/null || true
+  echo "===== eraserdiag ====="; cat "$OUT/eraserdiag.jsonl" 2>/dev/null
+  exit 1
+fi
+
 # 动效录像：跑 testMotion 的同时录屏（启动淡入、设置面板开关、离线标记收展）
 xcrun simctl io "$UDID" recordVideo --codec=h264 --force "$OUT/motion.mp4" > "$OUT/record.log" 2>&1 &
 REC=$!
