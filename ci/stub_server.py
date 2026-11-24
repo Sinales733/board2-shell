@@ -62,7 +62,20 @@ class H(http.server.SimpleHTTPRequestHandler):
         if p == "/draft":
             i = (q.get("id") or [""])[0]
             if STATE.get("slowdraft") and not i.startswith("pk_"):
-                time.sleep(STATE["slowdraft"] / 1000.0)   # 测试用：旧稿故意晚回
+                # 测试用：旧稿故意晚回。先回头、每秒滴一个空格（JSON 前面的空白合法），到时间再给内容——
+                # App 的请求超时（6 秒）算的是"多久没收到数据"，这样拖多久都不会被 App 当成连不上
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                end = time.time() + STATE["slowdraft"] / 1000.0
+                while time.time() < end:
+                    self.wfile.write(b" "); self.wfile.flush()
+                    time.sleep(min(1.0, max(0.0, end - time.time())))
+                self.wfile.write(json.dumps({"id": i, "doc": DRAFTS.get(i)}, ensure_ascii=False).encode("utf-8"))
+                self.wfile.flush()
+                self.close_connection = True
+                return
             return self.reply({"id": i, "doc": DRAFTS.get(i)})
         if p == "/_slowdraft":   # ?ms=2000 让 GET /draft 晚回；ms=0 恢复
             STATE["slowdraft"] = int((q.get("ms") or ["0"])[0] or 0)

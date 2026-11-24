@@ -125,7 +125,7 @@ final class InkLayer: NSObject {
         maskLayer.fillRule = .evenOdd   // 路径里已经没有重叠的洞了，两种规则结果一样
         // 启动时（画布一定是空的）先给画布换一次位图橡皮再换回笔：冷启动后第一次换橡皮、画布上又有笔画时，PencilKit 要卡 1.7–3.9 秒
         // （云端诊断 r29-diag：不预热冷启动第一次 1721ms；空画布上预热只要 2–12ms，之后换橡皮 3–4ms）。诊断变体 nowarm 关掉它
-        if !ShotVariant.on("nowarm") { DispatchQueue.main.async { self.warmEraser("launch") } }
+        if !ShotVariant.on("nowarm") { DispatchQueue.main.async { self.buildTools(); self.warmEraser("launch") } }
         canvas.layer.mask = maskLayer
         canvas.drawingGestureRecognizer.addTarget(self, action: #selector(drawingGesture(_:)))
 
@@ -366,6 +366,24 @@ final class InkLayer: NSObject {
         return n
     }
 
+    /// 工具对象只造一次、存起来，换工具时只是把存好的那个交给画布。
+    /// 根因（r35 抓到的调用栈）：每"造"一个 PencilKit 工具（PKInkingTool / PKEraserTool 的初始化）都会去资源目录读它的图标
+    /// （PKToolConfiguration → UIImage → CoreUI 资源目录查找），第一次读某个配置的图标很慢（0.5–3.9 秒），以前每次换工具都现造一个。
+    private var tools: [String: PKTool] = [:]
+    private func cachedTool(_ key: String) -> PKTool {
+        if let t = tools[key] { return t }
+        let t: PKTool = key == "eraser" ? (ShotVariant.on("vector") ? PKEraserTool(.vector) : PKEraserTool(.bitmap))
+            : PKInkingTool(.pen, color: InkLayer.colors[key] ?? InkLayer.defaultInk, width: 2.4)
+        tools[key] = t
+        return t
+    }
+    /// 启动时把要用到的工具都造好（笔 4 种颜色 + 位图橡皮），慢的那一下发生在启动、用户还没点的时候
+    private func buildTools() {
+        let t0 = ProcessInfo.processInfo.systemUptime
+        for k in ["eraser"] + Array(InkLayer.colors.keys).sorted() { _ = cachedTool(k) }
+        InkDiag.shared.log("tools built \(tools.count) took \(Int((ProcessInfo.processInfo.systemUptime - t0) * 1000))ms")
+    }
+
     /// 预热：给画布换一次位图橡皮再换回来（启动时做一次）
     private var warmed = false
     private(set) var warmInfo: [String: Any] = [:]
@@ -373,7 +391,7 @@ final class InkLayer: NSObject {
         guard !warmed else { return }
         warmed = true
         let saved = canvas.tool, t0 = ProcessInfo.processInfo.systemUptime
-        canvas.tool = PKEraserTool(.bitmap)
+        canvas.tool = cachedTool("eraser")
         canvas.tool = saved
         let ms = Int((ProcessInfo.processInfo.systemUptime - t0) * 1000)
         warmInfo = ["where": whereName, "ms": ms, "strokes": canvas.drawing.strokes.count]
@@ -419,9 +437,9 @@ final class InkLayer: NSObject {
         toolName = t; colorName = c
         let t0 = ProcessInfo.processInfo.systemUptime
         if t == "eraser" {
-            canvas.tool = ShotVariant.on("vector") ? PKEraserTool(.vector) : PKEraserTool(.bitmap)
+            canvas.tool = cachedTool("eraser")
         } else {
-            canvas.tool = PKInkingTool(.pen, color: InkLayer.colors[c] ?? InkLayer.defaultInk, width: 2.4)
+            canvas.tool = cachedTool(c)
         }
         let ms = Int((ProcessInfo.processInfo.systemUptime - t0) * 1000)
         lastToolApply = ["tool": t, "color": c, "wall": TouchClock.wall(ProcessInfo.processInfo.systemUptime), "assignMs": ms]
