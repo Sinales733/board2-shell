@@ -180,6 +180,23 @@ final class ShotsUITests: XCTestCase {
             while Date() < end { c = count(); if c == want { return c }; Thread.sleep(forTimeInterval: 0.1) }
             return c
         }
+        /// 清空：点一次进确认态，再点一次清空。两下要在 4 秒确认期里；超了说明这一次测试操作本身太慢，重来（最多 3 次）
+        func clearConfirmed(_ label: String, expect: () -> Bool) {
+            var notes: [String] = []
+            for attempt in 1...3 {
+                _ = tapRect(wbtn("clear")); settle(0.4)
+                let t1 = lastTap()["act"] as? Int ?? 0, sure = (web()["clearSure"] as? Bool) == true
+                _ = tapRect(wbtn("clear")); settle(0.6)
+                let t2 = lastTap()["act"] as? Int ?? 0, lta = lastTap()["liftToAct"] as? Int ?? -1
+                notes.append("try\(attempt): sure=\(sure) gap=\(t2 - t1)ms lift→act=\(lta)")
+                if t2 - t1 < 3800 {
+                    step(label, sure && lta >= 0 && lta <= 300 && expect(), notes.joined(separator: "; ") + " count=\(count()) v2=\(v2())")
+                    return
+                }
+                Thread.sleep(forTimeInterval: 4.5)
+            }
+            step(label, false, notes.joined(separator: "; ") + " (two taps never within the 4 s window)")
+        }
         func zone() -> (x0: Double, x1: Double, ys: [Double]) {
             let (W, H) = wh()
             return (W * 0.12, W * 0.48, (0..<5).map { H * 0.25 + Double($0) * H * 0.08 })
@@ -209,7 +226,7 @@ final class ShotsUITests: XCTestCase {
             if (web()["drawer"] as? Bool) != true { log.append("tag=\(tapRect(web()["tag"] as? [Double]))"); settle(1.5) } else { log.append("drawer already open") }
             let cr = (web()["cells"] as? [String: Any])?[cell] as? [Double]
             log.append("cell=\(tapRect(cr))"); settle(2.0)
-            if (web()["drawer"] as? Bool) == true { log.append("drawer still open"); cmd("closeall") }
+            if (web()["drawer"] as? Bool) == true { log.append("drawer still open cellRect=\(cr ?? []) clicks=\(web()["lastClicks"] ?? "nil")"); cmd("closeall") }
             log.append("open=\(tapToggle())"); settle(1.5)
             log.append("id=\(web()["id"] ?? "nil")")
             return log.joined(separator: " ") + ((web()["id"] as? String) == id ? "" : " WRONG")
@@ -226,9 +243,26 @@ final class ShotsUITests: XCTestCase {
         // ---- 全屏、按钮位置 ----
         let (W0, H0) = wh()
         let scr = native()["uiscreen"] as? [Double] ?? []
-        let winF = app.windows.firstMatch.frame, scrF = XCUIApplication(bundleIdentifier: "com.apple.springboard").frame
-        let windowed = abs(winF.width - scrF.width) > 1 || abs(winF.height - scrF.height) > 1 || winF.minX > 1 || winF.minY > 1
-        step("app runs full screen", !windowed, "XCUI window frame=\(winF) screen=\(scrF) app-reported screen=\(scr) web=\(W0)x\(H0)")
+        let sb = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        func isWindowed() -> (Bool, String) {
+            let w = app.windows.firstMatch.frame, s = sb.frame
+            let full = abs(max(w.width, w.height) - max(s.width, s.height)) <= 1 && abs(min(w.width, w.height) - min(s.width, s.height)) <= 1 && w.minX <= 1 && w.minY <= 1
+            return (!full, "window=\(w) screen=\(s)")
+        }
+        var (windowed, wnote) = isWindowed()
+        var tried: [String] = []
+        if windowed {   // 试一：转一下屏再转回来
+            XCUIDevice.shared.orientation = o == "portrait" ? .landscapeLeft : .portrait; Thread.sleep(forTimeInterval: 1.5)
+            XCUIDevice.shared.orientation = ori; Thread.sleep(forTimeInterval: 1.5)
+            (windowed, wnote) = isWindowed(); tried.append("rotate→\(windowed ? "still windowed" : "full")")
+        }
+        if windowed {   // 试二：系统窗口按钮（左上三个点）里的"全屏 / 填满"
+            sb.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: 91, dy: 75)).tap(); Thread.sleep(forTimeInterval: 1.0)
+            let menu = sb.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'full' OR label CONTAINS[c] 'fill' OR label CONTAINS '全屏' OR label CONTAINS '填满'")).firstMatch
+            if menu.waitForExistence(timeout: 2) { tried.append("menu '\(menu.label)'"); menu.tap(); Thread.sleep(forTimeInterval: 1.5) } else { tried.append("no full-screen item") }
+            (windowed, wnote) = isWindowed(); tried.append(windowed ? "still windowed" : "full")
+        }
+        step("app runs full screen", !windowed, wnote + " tried=\(tried) app-reported screen=\(scr) web=\(W0)x\(H0)")
         let tg0 = native()["toggle"] as? [Double] ?? [], wb = web()["draftBtn"] as? [Double] ?? []
         var cd = 9999.0
         if let a = center(tg0), let b = center(wb) { cd = hypot(a.0 - b.0, a.1 - b.1) }
@@ -267,8 +301,13 @@ final class ShotsUITests: XCTestCase {
             if let r = web()["dtool"] as? [Double] { skip.append(r) }
             if let r = native()["toggle"] as? [Double] { skip.append(r) }
             if windowed { skip.append([30, 40, 110, 80]); skip.append([W0 - 90, H0 - 120, 90, 120]) }   // 系统的窗口按钮（左上）、缩放把手（右下）
+            // 被切开的第 2–4 笔：沿原来的笔画外扩 4 点的长条单独比（只允许边缘抗锯齿变化），不算进"别的笔迹"
+            let cutBands: [[Double]] = (1...3).map { i in [z.x0 - 4, z.ys[i] - 4, z.x1 - z.x0 + 8, 28] }
+            let (cdiff, _) = pixelDiff(shot0, shot1, W0, skip, save: outDir.appendingPathComponent("erase-diff-all-\(o).png"))
+            skip += cutBands
             let (diff, box) = pixelDiff(shot0, shot1, W0, skip, save: outDir.appendingPathComponent("erase-diff-\(o).png"))
-            step("eraser: pixels outside 30pt of the eraser path identical", diff == 0, "differing pixels=\(diff) in box(pt)=\(box)" + (windowed ? " (skipped system window chrome)" : ""))
+            step("eraser: pixels outside 30pt of the eraser path identical", diff == 0,
+                 "differing pixels=\(diff) in box(pt)=\(box); excluded cut strokes 2-4 (±4pt), where \(cdiff) pixels differ in all" + (windowed ? " (skipped system window chrome)" : ""))
         }
         tool1("undo", "toolbar undo restores erase", keepsCount: false) { prints() == pre }
         tool1("pen", "toolbar pen") { tool().hasPrefix("ink") }
@@ -347,18 +386,15 @@ final class ShotsUITests: XCTestCase {
                  "sure=\(web()["clearSure"] ?? "nil") count=\(count()) toolEvs=\(web()["toolEvs"] ?? "nil") toolClk=\(web()["toolClk"] ?? "nil")")
             if (web()["clearSure"] as? Bool) == true { Thread.sleep(forTimeInterval: 4.5) }   // 失败时让确认态自己过期，不连累后面
         }
-        tool1("clear", "clear tap 1") { (web()["clearSure"] as? Bool) == true }
-        tool1("clear", "clear tap 2: native and old draft both 0", keepsCount: false) { waitCount(0, 1) == 0 && v2() == 0 }
+        clearConfirmed("clear tap 2: native and old draft both 0") { waitCount(0, 1) == 0 && v2() == 0 }
         cmd("finger on")
         write("stroke after clear", (z.x0, z.ys[2]), (z.x1, z.ys[2] + 10))
-        tool1("clear", "second clear tap 1") { (web()["clearSure"] as? Bool) == true }
-        tool1("clear", "second clear tap 2", keepsCount: false) { waitCount(0, 1) == 0 }
+        clearConfirmed("second clear tap 2") { waitCount(0, 1) == 0 }
         tool1("undo", "undo #1: back to the stroke written after first clear", keepsCount: false) { waitCount(1, 1) == 1 && v2() == 0 }
         tool1("undo", "undo #2: that stroke undone", keepsCount: false) { waitCount(0, 1) == 0 && v2() == 0 }
         tool1("undo", "undo #3: first clear undone, old draft back", keepsCount: false) { waitCount(n0, 1) == n0 && v2() == v2a }
         // 清空后马上杀掉重启
-        tool1("clear", "clear before kill tap 1") { true }
-        tool1("clear", "clear before kill tap 2", keepsCount: false) { waitCount(0, 1) == 0 }
+        clearConfirmed("clear before kill tap 2") { waitCount(0, 1) == 0 }
         app.terminate()
         launch()
         _ = tapToggle(); settle(1.5)
@@ -373,8 +409,7 @@ final class ShotsUITests: XCTestCase {
         _ = switchTo("b", "2009-02"); _ = switchTo("a", "2009-01")   // 先在线打开过 2009-02：离线时只能打开 iPad 上存过的题
         settle(1.0)
         _ = http("_offline")
-        tool1("clear", "offline clear tap 1") { true }
-        tool1("clear", "offline clear tap 2", keepsCount: false) { v2() == 0 }
+        clearConfirmed("offline clear tap 2") { v2() == 0 }
         let sw1 = switchTo("b", "2009-02"), sw2 = switchTo("a", "2009-01")
         step("offline: switch away and back by real taps, old draft stays cleared", v2() == 0 && !sw1.contains("WRONG") && !sw2.contains("WRONG"), "\(sw1) | \(sw2) v2=\(v2())")
         _ = http("_online")

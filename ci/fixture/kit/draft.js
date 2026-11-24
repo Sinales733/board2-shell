@@ -644,6 +644,9 @@
   /* 在工具条上按下的手指 / 笔（包括拖手柄、拖透明度）抬起时都不要浏览器补 click：拖手柄松手时手指往往已经在工具条外面，
      补来的 click 会落到下面的页面上（模拟器里实测打开了原卷浮层） */
   tool.addEventListener('touchend', (e) => { e.preventDefault(); }, { passive: false });
+  /* 根上拦：在工具条上按下的触摸，touchstart 就 preventDefault，浏览器从一开始就不会为这一下合成 click
+     （实测 touchend 上拦不住：拖手柄后浏览器过了约 1 秒还在按下点补了一个 click，r18 日志 toolClk=1065ms@0px）。按钮照样在 pointerup 时生效。 */
+  tool.addEventListener('touchstart', (e) => { e.preventDefault(); }, { passive: false });
   /* 兜底：在工具条上按着、以及抬起后 1.5 秒内，落在工具条外面的 click 一律不算（模拟器里实测：拖手柄后浏览器仍在按下的那一点补了一个 click，
      工具条已经挪走了，click 落到下面的原卷图上把原卷浮层打开了） */
   /* 只拦"在工具条上按下的那一下"补出来的 click：落点在按下点 30px 以内、抬起后 600 毫秒内；工具条外面一有新的按下，立刻不拦 */

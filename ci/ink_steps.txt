@@ -34,19 +34,15 @@ clear first tap: confirm state only
 tap on confirm bubble: nothing cleared, page not clicked
 clear confirm times out
 press clear, slide out, release: nothing happens
-clear tap 1
 clear tap 2: native and old draft both 0
 stroke after clear
-second clear tap 1
 second clear tap 2
 undo #1: back to the stroke written after first clear
 undo #2: that stroke undone
 undo #3: first clear undone, old draft back
-clear before kill tap 1
 clear before kill tap 2
 clear then kill + relaunch: stays cleared
 old draft restored on server for offline test
-offline clear tap 1
 offline clear tap 2
 offline: switch away and back by real taps, old draft stays cleared
 online again: cleared old draft uploaded
