@@ -54,7 +54,9 @@ final class StressUITests: XCTestCase {
         }
         func web() -> [String: Any] { state()["web"] as? [String: Any] ?? [:] }
         func cmd(_ c: String) { try? c.write(to: cmdURL, atomically: true, encoding: .utf8); Thread.sleep(forTimeInterval: 1.0) }
-        let base = app.webViews.firstMatch
+        let webEl = app.webViews.firstMatch
+        // 点的坐标按 App 根元素（窗口）算：网页视图铺满窗口，位置一样；不用网页视图元素，省掉每一下之前查整棵网页无障碍树
+        let base: XCUIElement = app
         func wh() -> (Double, Double) { ((web()["W"] as? Double) ?? 820, (web()["H"] as? Double) ?? 1180) }
         func center(_ r: [Double]?) -> (Double, Double)? { guard let r = r, r.count == 4, r[2] > 0 else { return nil }; return (r[0] + r[2] / 2, r[1] + r[3] / 2) }
         // 位置事先查好（工具条不动），连点时不再读状态
@@ -68,7 +70,7 @@ final class StressUITests: XCTestCase {
 
         _ = http("_online"); _ = http("_resetdrafts")
         launch(); cmd("resetall"); app.terminate(); launch()
-        _ = base.waitForExistence(timeout: 10)
+        _ = webEl.waitForExistence(timeout: 10)
         var setup: [String] = []
         if windowed {   // 窗口模式：拖右下角缩放把手缩成窗口（这一下被系统收走，单独记）
             let wc = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1))

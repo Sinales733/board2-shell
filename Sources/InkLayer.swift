@@ -186,6 +186,14 @@ final class InkLayer: NSObject {
             f.origin.x = min(max(f.minX, safe.minX), safe.maxX - s)
             f.origin.y = min(max(f.minY, safe.minY), safe.maxY - s)
         }
+        // 开着、网页按钮那里被面板盖住（比如竖屏把问答面板放大了）：按钮挪到不压任何让出区的地方，不盖住面板上的按钮
+        if isOpen && webBtnCovered {
+            let cands = [CGPoint(x: safe.maxX - s, y: safe.minY), CGPoint(x: safe.minX, y: safe.minY),
+                         CGPoint(x: safe.maxX - s, y: safe.maxY - s), CGPoint(x: safe.minX, y: safe.maxY - s)]
+            if let p = cands.first(where: { c in !canvas.passRects.contains { $0.intersects(CGRect(origin: c, size: CGSize(width: s, height: s))) } }) {
+                f.origin = p
+            }
+        }
         if toggle.frame != f { toggle.frame = f }
         // 收着时：网页这一页本来就没有草稿纸按钮（量不到）、或者它被抽屉、问答面板盖住了，App 的按钮也不出来，免得压在别的东西上。
         // 开着时一直在（要靠它收起）。

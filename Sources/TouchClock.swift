@@ -130,6 +130,7 @@ enum MainBeat {
     static func start() {
         guard timer == nil else { return }
         last = ProcessInfo.processInfo.systemUptime
+        StallSampler.startIfNeeded()
         let t = Timer(timeInterval: 0.05, repeats: true) { _ in
             let now = ProcessInfo.processInfo.systemUptime
             let gap = now - last
@@ -137,8 +138,10 @@ enum MainBeat {
                 let rec = "\(TouchClock.wall(last))+\(Int(gap * 1000))(after \(doing))"
                 gaps.append(rec); if gaps.count > 12 { gaps.removeFirst() }
                 InkDiag.shared.log("main thread blocked \(rec)")
+                if let st = StallSampler.take() { InkDiag.shared.log("stall stack \(TouchClock.wall(last)): " + st) }
             }
             last = now
+            StallSampler.tick()
         }
         RunLoop.main.add(t, forMode: .common)
         timer = t
@@ -158,5 +161,55 @@ enum MainBeat {
             InkDiag.shared.log("slow \(rec)")
         }
         return r
+    }
+}
+
+/// 诊断（只在云端截图 / 测试模式）：主线程卡住时它在干什么。
+/// 后台一条线程每 50 毫秒看一眼主线程的打拍（MainBeat 每拍更新）；超过 400 毫秒没打拍，就给主线程发一个信号，
+/// 信号处理里只做 backtrace()（取当时的调用栈地址），主线程缓过来后由 MainBeat 把符号化的调用栈记进笔迹日志（"stall stack …"）。
+/// 用来分清卡顿是 PencilKit、XCUITest 查元素（无障碍查询）、写文件还是别的。真机上不开。
+private let stallFrames = UnsafeMutablePointer<UnsafeMutableRawPointer?>.allocate(capacity: 64)
+private var stallFrameCount: Int32 = 0
+enum StallSampler {
+    private static var mainThread: pthread_t?
+    private static var lastTick = DispatchTime.now().uptimeNanoseconds
+    private static var sampled = false
+    private static var started = false
+
+    static func startIfNeeded() {
+        guard ShotMode.isOn, !started else { return }
+        started = true
+        mainThread = pthread_self()
+        signal(SIGUSR2) { _ in stallFrameCount = backtrace(stallFrames, 64) }
+        let th = Thread {
+            while true {
+                Thread.sleep(forTimeInterval: 0.05)
+                guard MainBeat.running, let m = mainThread else { continue }
+                let idle = DispatchTime.now().uptimeNanoseconds &- lastTick
+                if idle > 400_000_000 && !sampled { sampled = true; pthread_kill(m, SIGUSR2) }
+            }
+        }
+        th.name = "b2-stall-sampler"
+        th.qualityOfService = .userInteractive
+        th.start()
+    }
+
+    /// 主线程每拍调一次
+    static func tick() { lastTick = DispatchTime.now().uptimeNanoseconds; sampled = false }
+
+    /// 取走这次卡顿时抓到的调用栈（符号化，去掉最前面信号处理那几帧），没有就 nil
+    static func take() -> String? {
+        let n = Int(stallFrameCount)
+        guard n > 0, let syms = backtrace_symbols(stallFrames, Int32(n)) else { return nil }
+        stallFrameCount = 0
+        var out: [String] = []
+        for i in 0..<n {
+            guard let c = syms[i] else { continue }
+            // 一行：序号 模块 地址 符号 + 偏移；只留模块和符号
+            let parts = String(cString: c).split(separator: " ", omittingEmptySubsequences: true)
+            if parts.count >= 4 { out.append("\(parts[1]):\(parts[3...].prefix(1).joined())") } else { out.append(String(cString: c)) }
+        }
+        free(syms)
+        return out.prefix(40).joined(separator: " | ")
     }
 }

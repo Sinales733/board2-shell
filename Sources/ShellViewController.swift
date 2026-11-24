@@ -1031,6 +1031,10 @@ extension ShellViewController {
         case "drawer":
             // 开选题抽屉（草稿纸开着时题号被纸盖住，点不到；测"让出区重叠"用）
             webView.evaluateJavaScript("try{document.getElementById('tag').click()}catch(e){};0", completionHandler: nil)
+        case "toolleft", "toolright":
+            // 工具条贴左 / 贴右（测试用；网页 ui.side，和松开手柄时一样存下来）
+            let side = k == "toolleft" ? "l" : "r"
+            webView.evaluateJavaScript("try{var u=Kit.draft.ui;u.side='\(side)';localStorage.setItem('b2draftUI',JSON.stringify(u));dispatchEvent(new Event('resize'))}catch(e){};0", completionHandler: nil)
         case "askopen":
             webView.evaluateJavaScript("try{Kit.ask.open()}catch(e){};0", completionHandler: nil)
         case "finger":

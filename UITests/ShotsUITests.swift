@@ -187,11 +187,20 @@ final class ShotsUITests: XCTestCase {
             if let h = try? FileHandle(forWritingTo: markURL) { h.seekToEndOfFile(); h.write(Data(line.utf8)); try? h.close() }
             else { try? line.write(to: markURL, atomically: true, encoding: .utf8) }
         }
-        func isOpen() -> Bool { (web()["open"] as? Bool) == true && (native()["open"] as? Bool) == true }
+        func isOpen() -> Bool {
+            (web()["open"] as? Bool) == true && (native()["open"] as? Bool) == true
+        }
         func settle(_ t: TimeInterval = 0.5) { Thread.sleep(forTimeInterval: t) }
         func cmd(_ c: String) { try? c.write(to: cmdURL, atomically: true, encoding: .utf8); Thread.sleep(forTimeInterval: 1.0) }
         func wh() -> (Double, Double) { ((web()["W"] as? Double) ?? 820, (web()["H"] as? Double) ?? 1180) }
-        let base = app.webViews.firstMatch
+        /// 恢复到"草稿纸开着、工具条在右边"：前一步失败了也不连累后面（失败那一步照样记失败）
+        func restore() {
+            if (web()["side"] as? String) != "r" { cmd("toolright"); settle(1.0) }
+            if !isOpen() { cmd("open"); settle(1.5); print("INK \(o): (restored: draft reopened)") }
+        }
+        let webEl = app.webViews.firstMatch
+        // 点的坐标按 App 根元素（窗口）算：网页视图铺满窗口，位置一样；不用网页视图元素，省掉每一下之前查整棵网页无障碍树
+        let base: XCUIElement = app
         func at(_ x: Double, _ y: Double) -> XCUICoordinate {
             let (W, H) = wh()
             return base.coordinate(withNormalizedOffset: CGVector(dx: x / W, dy: y / H))
@@ -290,7 +299,7 @@ final class ShotsUITests: XCTestCase {
         cmd("resetall")
         app.terminate()
         launch()
-        _ = base.waitForExistence(timeout: 10)
+        _ = webEl.waitForExistence(timeout: 10)
 
         // ---- 全屏、按钮位置 ----
         var (W0, H0) = wh()
@@ -465,16 +474,17 @@ final class ShotsUITests: XCTestCase {
         } else { step("drag grip moves toolbar, no stroke, nothing opened below", false, "no grip") }
 
         // ---- 四.1 工具条拖到左边、再开选题抽屉：两块让出区重叠，重叠处在遮罩里是洞（不露笔迹） ----
-        if let g = center(wbtn("grip")) {
-            drag(g, (40, g.1), velocity: 600, press: 0.2, hold: 0.2); settle(1.5)
+        do {
+            cmd("toolleft"); settle(1.5)
             cmd("drawer"); settle(1.5)
             try? XCUIScreen.main.screenshot().pngRepresentation.write(to: outDir.appendingPathComponent("mask-overlap-\(fo).png"))
             let ov = (native()["passOverlap"] as? Bool) == true, okm = (native()["maskOverlapOK"] as? Bool) == true
             step("toolbar left + drawer open: overlap of the two is a hole in the mask", ov && okm,
                  "side=\(web()["side"] ?? "nil") drawer=\(web()["drawer"] ?? "nil") overlap=\(ov) maskOK=\(okm) passRects=\(native()["passRects"] ?? "nil") (screenshot mask-overlap-\(fo).png)")
             cmd("closeall"); settle(1.0)
-            if let g2 = center(wbtn("grip")) { drag(g2, (wh().0 - 40, g2.1), velocity: 600, press: 0.2, hold: 0.2); settle(1.5) }
-        } else { step("toolbar left + drawer open: overlap of the two is a hole in the mask", false, "no grip") }
+            cmd("toolright"); settle(1.5)
+        }
+        restore()
 
         // ---- 三.4 问答面板放大：放不下工具条就整个收起，不盖面板上的按钮；缩回去工具条再出现 ----
         cmd("askopen"); settle(1.5)
@@ -486,8 +496,11 @@ final class ShotsUITests: XCTestCase {
             let inter = pn.count == 4 && dt.count == 4 && CGRect(x: pn[0], y: pn[1], width: pn[2], height: pn[3]).intersects(CGRect(x: dt[0], y: dt[1], width: dt[2], height: dt[3]))
             let pr = native()["passRects"] as? [[Double]] ?? []
             let toolInRects = dt.count == 4 && pr.contains { $0.count == 4 && abs($0[0] - dt[0]) < 2 && abs($0[1] - dt[1]) < 2 && abs($0[2] - dt[2]) < 2 }
-            step("ask panel enlarged: toolbar hidden or clear of the panel", (fb1["wide"] as? Bool) == true && (hid ? !toolInRects : !inter),
-                 "wide=\(fb1["wide"] ?? "nil") hidden=\(hid) toolbar=\(dt) panel=\(pn) toolbar in pass rects=\(toolInRects)")
+            // App 自己的开关按钮也不能盖住面板上的放大按钮（r29 窗口竖屏：盖住了，点"缩回"点到了开关、把草稿纸收了）
+            let tgR = native()["toggle"] as? [Double] ?? [], wbR = fb1["wideBtn"] as? [Double] ?? []
+            let tgCovers = tgR.count == 4 && wbR.count == 4 && CGRect(x: tgR[0], y: tgR[1], width: tgR[2], height: tgR[3]).intersects(CGRect(x: wbR[0], y: wbR[1], width: wbR[2], height: wbR[3]))
+            step("ask panel enlarged: toolbar hidden or clear of the panel", (fb1["wide"] as? Bool) == true && (hid ? !toolInRects : !inter) && !tgCovers,
+                 "wide=\(fb1["wide"] ?? "nil") hidden=\(hid) toolbar=\(dt) panel=\(pn) toolbar in pass rects=\(toolInRects) app toggle=\(tgR) enlarge button=\(wbR) covered=\(tgCovers)")
             let fb2w = (web()["fb"] as? [String: Any])?["wideBtn"] as? [Double]
             _ = tapRect(fb2w); settle(1.5)   // 面板上的放大按钮没被工具条盖住：点得到，缩回去
             let fb3 = web()["fb"] as? [String: Any] ?? [:]
@@ -498,6 +511,7 @@ final class ShotsUITests: XCTestCase {
             step("ask panel back to normal: toolbar shown again", false, "skipped")
         }
         cmd("closeall"); settle(1.0)
+        restore()
 
         // ---- 清空 ----
         let n0 = count(), v2a = v2()
@@ -584,6 +598,7 @@ final class ShotsUITests: XCTestCase {
         clearTwice("slow old draft: clear tap 1", "slow old draft: clear tap 2") { true }
         let ld4 = (web()["loading"] as? Bool) == true
         Thread.sleep(forTimeInterval: 5.5)
+        _ = http("_slowdraft?ms=0")   // 读电脑那份之前恢复正常（测试自己的请求也会被拖 5 秒、超时）
         let srvS = http("draft?id=2009-01")
         step("old draft arrives after a clear: cleared too and written back", ld3 && ld4 && v2() == 0 && srvS.contains("\"s\": []"),
              "loading at open=\(ld3) after clear=\(ld4) v2=\(v2()) server=\(srvS.prefix(120))")
