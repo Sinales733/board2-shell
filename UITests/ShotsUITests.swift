@@ -659,10 +659,13 @@ final class ShotsUITests: XCTestCase {
         let sureOn = (web()["clearSure"] as? Bool) == true, sureAct = lastTap()["act"] as? Int ?? 0
         let closedForSwitch = tapToggle(); settle(0.5)
         let st8 = state(), w8 = st8["web"] as? [String: Any] ?? [:], ts8 = st8["ts"] as? Int ?? 0
-        let sinceConfirm = ts8 - sureAct   // 这份状态写出时，离确认那一下执行过了多久（App 时钟）
+        let sinceConfirm = ts8 - sureAct   // 这份状态写出时，离确认那一下执行过了多久（App 时钟；只记，不判）
+        let lc = (w8["toolDown"] as? [String: Any])?["lastClose"] as? [String: Any] ?? [:]
+        let closeT = (lc["t"] as? NSNumber)?.int64Value ?? 0, hadSure = (lc["hadSure"] as? Bool) == true
+        let closeAfter = closeT > 0 && sureAct > 0 ? Int(closeT - Int64(sureAct)) : -1   // 收起离确认那一下多久（网页时钟）
         step("clear confirm, then close to switch question: confirm dropped at once",
-             sureOn && closedForSwitch && sureAct > 0 && (w8["clearSure"] as? Bool) == false && (w8["sureShown"] as? Bool) == false && (w8["open"] as? Bool) == false && sinceConfirm < 4000,
-             "sure before=\(sureOn) after=\(w8["clearSure"] ?? "nil") bubble=\(w8["sureShown"] ?? "nil") open=\(w8["open"] ?? "nil"): state written \(sinceConfirm)ms after the confirm tap ran (confirm timeout is 4000)")
+             sureOn && closedForSwitch && sureAct > 0 && hadSure && closeAfter >= 0 && (w8["clearSure"] as? Bool) == false && (w8["sureShown"] as? Bool) == false && (w8["open"] as? Bool) == false,
+             "sure before=\(sureOn) at close=\(hadSure) (close ran \(closeAfter)ms after the confirm tap) after=\(w8["clearSure"] ?? "nil") bubble=\(w8["sureShown"] ?? "nil") open=\(w8["open"] ?? "nil"); state written \(sinceConfirm)ms after")
         let s1 = switchTo("b", "2009-02")
         let pb0 = prints()
         z = zone()

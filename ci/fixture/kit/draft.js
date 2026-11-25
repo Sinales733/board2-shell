@@ -274,7 +274,9 @@
     size(); layout(); void tool.offsetWidth; tool.classList.remove('jump');   // 刚露出来：直接出现在该在的地方，不从左上角飞过去
     const k = keyNow(); if (k !== D.id || !D.doc) await load(k); render(); sync(true);
   }
+  let lastClose = null;   // 诊断：上一次收起的时刻（墙上毫秒）、那一刻清空确认是不是还挂着
   function close() {
+    lastClose = { t: Date.now(), hadSure: T('clear').classList.contains('sure') };
     endTouchAll(); flush(); D.open = false; D.cur = null; closePops(); D.clears = [];
     if (window.__b2perf && __b2perf.stop) __b2perf.stop();
     root.classList.remove('on'); tool.classList.remove('on'); btn.classList.remove('open'); labels(); sync(true);
@@ -824,7 +826,7 @@
   window.Kit = window.Kit || {};
   Kit.draft = { D, ui, V, open, close, flush, render, fix, homeView, setView, get doc() { return D.doc; }, get gesture() { return G; },
     /* 诊断：工具条上有没有"按着没松"的残留（测试在触摸被取消之后看） */
-    dbg: () => ({ down: !!downEl, touchPending: !!touchPending }),
+    dbg: () => ({ down: !!downEl, touchPending: !!touchPending, lastClose }),
     /* App 调：at 是 App 画布现在的取景窗 {x, y, z}（屏幕 = 纸面 × z + (x, y)），旧 v2 笔迹跟着它画 */
     native: NI() ? {
       update(o) { NV.undo = !!(o && o.undo); NV.bounds = o && Array.isArray(o.bounds) ? o.bounds : null; paintUndo(); },
