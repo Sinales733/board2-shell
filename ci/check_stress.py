@@ -51,6 +51,23 @@ def dist(v):
 
 sysl = (rd("system-gestures-stress.log") or "").split("\n")
 
+
+def _sysms(l):
+    try:
+        return int(datetime.datetime.strptime(l[:23], "%Y-%m-%d %H:%M:%S.%f").replace(tzinfo=datetime.timezone.utc).timestamp() * 1000)
+    except ValueError:
+        return None
+
+
+# 对钟：App 每秒写一行 "b2clock wall=<App 墙上毫秒>" 进系统日志；系统日志时间戳 − App 毫秒 的中位数就是钟差，
+# 拿 App 的触摸时刻去系统日志里找行之前先加上它
+_clk = sorted(s - int(m.group(1)) for l in sysl for m in [re.search(r"b2clock wall=(\d+)", l)] if m for s in [_sysms(l)] if s is not None)
+clock_offset = _clk[len(_clk) // 2] if _clk else 0
+clock_info = {"n": len(_clk), "offsetMs": clock_offset, "min": _clk[0] if _clk else None, "max": _clk[-1] if _clk else None,
+              "spreadMs": (_clk[-1] - _clk[0]) if _clk else None}
+clock_ok = bool(_clk) and clock_info["spreadMs"] <= 50   # 没对上钟、或钟差离散度超过 50ms：这一轮"取消时刻 ±50ms 有设备消失"不成立
+print("对钟（系统日志 - App）：", clock_info)
+
 # 主线程存活看门狗：主线程每次执行看门狗丢过去的任务的时刻（墙上毫秒，约每 50 毫秒一次）
 beats = sorted(int(x) for x in rd(name + ".beats.log").split() if x.strip().isdigit())
 
@@ -173,7 +190,10 @@ if len(late_list) > 3:
 
 # ---- 被收走的触摸（主会话裁定：模拟器拔掉虚拟触摸设备的那种可以不计入，条件全满足才行） ----
 # 1) 取消时刻 ±50ms 内有 backboardd "cancel -- digitizer did disappear" 且 contacts 不空（App 拿不到 touchIdentifier，只能按时刻对）；
-# 2) 取消前后 ±500ms 的系统日志里没有 "stealing the touches"、系统手势识别成功；App 那行 grs=[…] 里没有手势在 began / changed / ended；
+#    时刻按对钟扣掉钟差之后比；钟差离散度超过 50ms（或没对上钟）的轮次这一条不成立；
+# 2) 取消前后 ±500ms 的系统日志里没有 "stealing the touches"、系统手势识别成功；App 自己的手势识别器（WK* / PK* / DiagRootView 上的）
+#    没有在 began / changed / ended——UIKit 挂在窗口上的系统手势门不算（主会话裁定 B），但要排先后：
+#    门变 ended 的时刻（KVO 被动看）必须在系统日志 "digitizer did disappear" 之后（= 后果）；门先变 = 另一回事，这一下算失败、单独报；
 # 3) 每个配置最多 1 下；
 # 4) 取消之后恢复：紧接着下一次点同一个地方（±10 点）一次生效、App 侧 ≤300ms；网页工具条没有残留的按下（web after cancel toolbar state 里 down、touchPending 都是 false）；
 # 5) 逐条入账。
@@ -182,8 +202,20 @@ clines = [l for l in rd(name + ".cancel.log").split("\n") if l.strip() and l not
 SYS_GESTURE = r"stealing the touches|source: SystemGesture|SBFluidSwitcherGesture|LiveWindowResize|SystemGestureRecognized|gesture recognized"
 
 
+def sys_hits(ms, win, pat):
+    """系统日志里时刻在 App 时刻 ms ±win 内（扣掉钟差后）、匹配 pat 的行：[(换算成 App 钟的毫秒, 行)]"""
+    out_ = []
+    for l in sysl:
+        if not re.search(pat, l):
+            continue
+        st = _sysms(l)
+        if st is not None and abs(st - clock_offset - ms) <= win:
+            out_.append((st - clock_offset, l[:400]))
+    return out_
+
+
 def sys_lines(ms, win, pat):
-    t = datetime.datetime.fromtimestamp(ms / 1000, datetime.timezone.utc)
+    t = datetime.datetime.fromtimestamp((ms + clock_offset) / 1000, datetime.timezone.utc)   # App 的时刻换成系统日志的钟
     lo, hi = t - datetime.timedelta(milliseconds=win), t + datetime.timedelta(milliseconds=win)
     hits = []
     for l in sysl:
@@ -236,15 +268,35 @@ for l in clines:
         continue   # 网页那两行（pointercancel / touchcancel）跟着这一下，一起算
     m = re.search(r"t=(\d+) .*?at (\d+),(\d+)", l)
     t_c, x, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
-    digi_hits = [h for h in sys_lines(t_c, 50, r"cancel -- digitizer did disappear") if "contacts: contacts: []" not in h]
+    digi = [h for h in sys_hits(t_c, 50, r"cancel -- digitizer did disappear") if "contacts: contacts: []" not in h[1]]
+    digi_hits = [h[1] for h in digi]
     stolen = sys_lines(t_c, 500, SYS_GESTURE)
     gm = re.search(r"grs=\[(.*)\]", l)
-    busy = [g for g in (gm.group(1).split(",") if gm else []) if re.search(r":(began|changed|ended)$", g.strip())]
+    grs_ = [g.strip() for g in (gm.group(1).split(",") if gm else [])]
+    busy = [g for g in grs_ if re.search(r":(began|changed|ended)$", g) and "SystemGestureGate" not in g]
+    gate_in_grs = [g for g in grs_ if "SystemGestureGate" in g]
+    # 门的状态变化（KVO，App 钟）：取消前后 2 秒内门变 ended 的时刻，跟设备消失（扣掉钟差后）排先后
+    gate_kvo = [(int(mk.group(2)), mk.group(1)) for gl in log for mk in [re.search(r"gate kvo (\S+) -> ended wall=(\d+)", gl)] if mk and abs(int(mk.group(2)) - t_c) <= 2000]
+    gate_order = "门没变 ended"
+    gate_ok = True
+    if any(g.endswith(":ended") for g in gate_in_grs) or gate_kvo:
+        if not gate_kvo:
+            gate_order, gate_ok = "门是 ended，但 KVO 没记到它几点变的（排不出先后）", False
+        elif not digi:
+            gate_order, gate_ok = "门变了 ended，但没有对得上的设备消失（排不出先后）", False
+        else:
+            d0 = min(h[0] for h in digi)
+            g0 = min(gate_kvo, key=lambda g: abs(g[0] - t_c))[0]   # 离这次取消最近的那次门变 ended
+            gate_order = f"门变 ended 在设备消失之后 {g0 - d0}ms（后果）" if g0 >= d0 else f"门变 ended 在设备消失之前 {d0 - g0}ms（另一回事，单独报）"
+            gate_ok = g0 >= d0
     rec = recovery(t_c, x, y)
-    ok = bool(digi_hits) and not stolen and not busy and rec.get("ok")
-    cx.append({"line": l[:600], "touchStamp": t_c, "at": [x, y], "digitizerDisappearedWithContacts": digi_hits[:3],
-               "stolenOrSystemGesture±500ms": stolen[:3], "appGesturesNotIdle": busy, "recovery": rec,
+    ok = clock_ok and bool(digi_hits) and not stolen and not busy and gate_ok and rec.get("ok")
+    cx.append({"line": l[:600], "touchStamp": t_c, "at": [x, y], "clock": clock_info, "digitizerDisappearedWithContacts": digi_hits[:3],
+               "stolenOrSystemGesture±500ms": stolen[:3], "appGesturesNotIdle": busy, "systemGestureGate": gate_in_grs,
+               "gateKvoEnded": gate_kvo[:3], "gateOrder": gate_order, "recovery": rec,
                "exempt": ok, "cause": "模拟器虚拟触摸设备在手指按着时被移除" if ok else "不满足不计入的条件"})
+    if gate_kvo and digi and not gate_ok:
+        bad.append(f"系统手势门先于设备消失变成 ended（单独报）：{gate_order}；{l[:200]}")
 exempt = [c for c in cx if c["exempt"]]
 if len(cx) - len(exempt):
     bad.append(f"被收走的触摸 {len(cx) - len(exempt)} 下不满足不计入的条件：{[c for c in cx if not c['exempt']][:2]}")
@@ -252,17 +304,26 @@ if len(exempt) > 1:
     bad.append(f"模拟器拔掉虚拟触摸设备造成的取消 {len(exempt)} 下，超过每个配置 1 下的上限")
 cancels = clines
 
+# ---- 系统手势门：每下触摸结束 / 取消时的状态分布（不判，只记；看 ended 有没有区分力）----
+gate_dist = {}
+for l in log:
+    mg = re.search(r"touch end gate phase=(\w+) gate=(\w+)", l)
+    if mg:
+        dd = gate_dist.setdefault(mg.group(1), {})
+        dd[mg.group(2)] = dd.get(mg.group(2), 0) + 1
+print("系统手势门在触摸结束时的状态：", gate_dist)
+
 # ---- 主线程卡顿（不判，只记）----
 gaps = [int(m.group(1)) for l in log for m in [re.search(r"main thread blocked \d+\+(\d+)", l)] if m]
 
 res = {"cfg": cfg, "pass": not bad, "bad": bad,
        "toolbar": {"sent": want, "acted": acts, "liftToAct": dl, "appSide": dapp, "appSideApplied": da, "toolChanges": want_apply},
        "cells": {"sent": nc, "liftToClick": dc, "appSide": dappc, "missing": missing},
-       "late": late_list, "appFail": app_fail, "beats": len(beats), "cancels": cx, "setupResizeDrag": sorted(setup),
+       "late": late_list, "appFail": app_fail, "beats": len(beats), "clock": clock_info, "gateAtEnd": gate_dist, "cancels": cx, "setupResizeDrag": sorted(setup),
        "mainThread": {"count": len(gaps), "maxMs": max(gaps) if gaps else 0, "over1s": sum(g >= 1000 for g in gaps)},
        "window": sent.get("window")}
 open(os.path.join(out, name + ".json"), "w", encoding="utf-8").write(json.dumps(res, ensure_ascii=False, indent=1))
-print(json.dumps({k: res[k] for k in ("cfg", "pass", "bad", "toolbar", "cells", "late", "mainThread")}, ensure_ascii=False))
+print(json.dumps({k: res[k] for k in ("cfg", "pass", "bad", "toolbar", "cells", "late", "mainThread", "clock", "gateAtEnd")}, ensure_ascii=False))
 for c in cx:
     print("CANCEL", c["line"][:300])
     print("   exempt:", c["exempt"], "recovery:", c["recovery"])

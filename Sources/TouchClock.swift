@@ -1,5 +1,6 @@
 import UIKit
 import ObjectiveC
+import os
 
 /// 触摸时间线（诊断用，只旁听）：在 UIApplication.sendEvent 上记每一下触摸的开始、结束时刻（换算成墙上时间毫秒），
 /// 不改触摸去向、不加手势识别器。草稿纸开着（或云端截图模式）时才记。
@@ -9,6 +10,14 @@ enum TouchClock {
     /// ms：触摸自己的时间戳；recv：App 的 UIApplication.sendEvent 收到它的时刻（都是墙上毫秒）
     private(set) static var lastEnd: (ms: Int64, x: Int, y: Int, view: String, recv: Int64)?
     private(set) static var lastBegin: (ms: Int64, x: Int, y: Int, view: String, recv: Int64)?
+    /// 最近 16 下按下 / 抬起（触摸时间戳、sendEvent 收到时刻）：工具条那一下按网页事件的时间戳配回它自己的触摸
+    /// （r38 全屏横屏：一下触摸晚到 6.8 秒，跟下一下几乎同时送到，按"最近一下"配就配错了）
+    private(set) static var recentBegins: [(ms: Int64, recv: Int64)] = []
+    private(set) static var recentEnds: [(ms: Int64, recv: Int64)] = []
+    /// 时间戳跟 ts 相差不到 8 毫秒、最接近的那一下
+    static func match(_ list: [(ms: Int64, recv: Int64)], _ ts: Int64) -> (ms: Int64, recv: Int64)? {
+        list.filter { abs($0.ms - ts) <= 8 }.min { abs($0.ms - ts) < abs($1.ms - ts) }
+    }
     /// 系统发来的、阶段是"取消"的触摸，开机以来一共几下（云端测试要求是 0）
     private(set) static var cancelled = 0
     /// 每个手势识别器上次记下的状态：只在它进入 began / ended（认出来了）/ cancelled / failed 时记一行
@@ -38,6 +47,7 @@ enum TouchClock {
         switch t.phase {
         case .began:
             lastBegin = rec
+            recentBegins.append((ms, recv)); if recentBegins.count > 16 { recentBegins.removeFirst() }
             if ShotMode.isOn, let dir = ShotMode.hostOut {   // 主动造取消的测试：按下的那一刻请宿主机把别的 App 开到前台
                 let arm = dir.appendingPathComponent("interrupt.arm")
                 if FileManager.default.fileExists(atPath: arm.path) {
@@ -56,10 +66,11 @@ enum TouchClock {
         case .ended, .cancelled:
             downAt.removeValue(forKey: ObjectIdentifier(t))
             lastEnd = rec
+            recentEnds.append((ms, recv)); if recentEnds.count > 16 { recentEnds.removeFirst() }
             InkDiag.shared.log("touch \(t.phase == .ended ? "ended" : "cancelled") \(kind) t=\(ms) recv=\(recv) at \(rec.1),\(rec.2) view=\(v)")
             if t.phase == .cancelled {
                 cancelled += 1
-                let line = "native touch cancelled #\(cancelled) \(kind) t=\(ms) at \(rec.1),\(rec.2) view=\(v) grs=[\(grs(t))]"
+                let line = "native touch cancelled #\(cancelled) \(kind) t=\(ms) at \(rec.1),\(rec.2) view=\(v) gate=\(gateState(t)) grs=[\(grs(t))]"
                 InkDiag.shared.log(line)
                 if ShotMode.isOn { ShotMode.hostWrite(".cancel.log", line, append: true) }
             }
@@ -103,9 +114,38 @@ extension TouchClock {
                     }
                 }
             }
-            if t.phase == .began { InkDiag.shared.log("touch grs at began: [\(grs(t))]") }
+            if t.phase == .began {
+                InkDiag.shared.log("touch grs at began: [\(grs(t))]")
+                if ShotMode.isOn { watchGates(t) }
+            }
+            if t.phase == .ended || t.phase == .cancelled {
+                InkDiag.shared.log("touch end gate phase=\(t.phase == .ended ? "ended" : "cancelled") gate=\(gateState(t)) t=\(wall(t.timestamp)) wall=\(Int64((Date().timeIntervalSince1970 * 1000).rounded()))")
+            }
         }
         if grState.count > 400 { grState.removeAll() }
+    }
+
+    /// 系统手势门（UIKit 挂在 App 窗口上的 _UISystemGestureGateGestureRecognizer）现在的状态；没挂就是 none
+    static func gateState(_ t: UITouch) -> String {
+        let all = (t.gestureRecognizers ?? []) + (t.window?.gestureRecognizers ?? [])
+        guard let g = all.first(where: { String(describing: type(of: $0)).contains("SystemGestureGate") }) else { return "none" }
+        return stateName(g.state)
+    }
+
+    /// 测试模式：KVO 被动看系统手势门的 state（只读，不加 target、不改属性），每次变化记"几点变成什么"（墙上毫秒），
+    /// 用来跟系统日志里 "digitizer did disappear" 排先后（门在设备消失之后才变 = 后果）
+    private static var gateObs: [ObjectIdentifier: NSKeyValueObservation] = [:]
+    fileprivate static func watchGates(_ t: UITouch) {
+        let all = (t.gestureRecognizers ?? []) + (t.window?.gestureRecognizers ?? [])
+        for g in all where String(describing: type(of: g)).contains("SystemGestureGate") {
+            let id = ObjectIdentifier(g)
+            if gateObs[id] != nil { continue }
+            let name = "\(type(of: g))@\(g.view.map { String(describing: type(of: $0)) } ?? "nil")#\(gateObs.count)"
+            gateObs[id] = g.observe(\.state, options: [.new]) { gr, _ in
+                InkDiag.shared.log("gate kvo \(name) -> \(stateName(gr.state)) wall=\(Int64((Date().timeIntervalSince1970 * 1000).rounded()))")
+            }
+            InkDiag.shared.log("gate kvo watching \(name)")
+        }
     }
 }
 
@@ -175,7 +215,7 @@ enum MainBeat {
 }
 
 /// 诊断（只在云端截图 / 测试模式）：主线程卡住时它在干什么。
-/// 后台一条线程每 50 毫秒看一眼主线程的打拍（MainBeat 每拍更新）；超过 400 毫秒没打拍，就给主线程发一个信号，
+/// 后台一条线程每 50 毫秒看一眼主线程的打拍（MainBeat / MainWatch 每拍更新）；超过 200 毫秒没打拍（记卡顿的门槛是 250 毫秒，r37 窗口横屏 104 条没栈的里 91 条实际卡 200–400 毫秒、够不着原来 400 的门槛），就给主线程发一个信号，
 /// 信号处理里只做 backtrace()（取当时的调用栈地址），主线程缓过来后由 MainBeat 把符号化的调用栈记进笔迹日志（"stall stack …"）。
 /// 用来分清卡顿是 PencilKit、XCUITest 查元素（无障碍查询）、写文件还是别的。真机上不开。
 private let stallFrames = UnsafeMutablePointer<UnsafeMutableRawPointer?>.allocate(capacity: 64)
@@ -196,7 +236,7 @@ enum StallSampler {
                 Thread.sleep(forTimeInterval: 0.05)
                 guard MainBeat.running || MainWatch.active, let m = mainThread else { continue }
                 let idle = DispatchTime.now().uptimeNanoseconds &- lastTick
-                if idle > 400_000_000 && !sampled { sampled = true; pthread_kill(m, SIGUSR2) }
+                if idle > 200_000_000 && !sampled { sampled = true; pthread_kill(m, SIGUSR2) }
             }
         }
         th.name = "b2-stall-sampler"
@@ -258,6 +298,9 @@ enum MainWatch {
                     lastRun = t
                 }
                 n += 1
+                // 对钟：每秒往系统日志写一行 App 的墙上毫秒（系统日志自己的时间戳跟它一比，就是两边的钟差；
+                // 拿 App 记的触摸时刻去系统日志里找对应的行要先扣掉它——r38 全屏横屏差了约 133 毫秒）
+                if n % 20 == 0 { os_log("b2clock wall=%{public}lld", Int64((Date().timeIntervalSince1970 * 1000).rounded())) }
                 if n % 20 == 0 {
                     lock.lock(); let out = buf; buf.removeAll(keepingCapacity: true); lock.unlock()
                     if !out.isEmpty { ShotMode.hostWrite(".beats.log", out.map(String.init).joined(separator: "\n"), append: true) }
