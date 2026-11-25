@@ -37,6 +37,30 @@ enum TouchClock {
         Int64(((Date().timeIntervalSince1970 - (ProcessInfo.processInfo.systemUptime - t)) * 1000).rounded())
     }
 
+    /// 测试模式：UITouch 私有实例变量 _touchIdentifier / _pathIndex（按名字查到、按类型读；查不到的不记）
+    static func ids(_ t: UITouch) -> String {
+        guard ShotMode.isOn else { return "" }
+        var out: [String] = []
+        for name in ["_touchIdentifier", "_pathIndex"] {
+            guard let iv = class_getInstanceVariable(UITouch.self, name), let enc = ivar_getTypeEncoding(iv) else { continue }
+            let off = ivar_getOffset(iv)
+            let base = UnsafeRawPointer(Unmanaged.passUnretained(t).toOpaque())
+            let v: Int
+            switch String(cString: enc) {
+            case "I": v = Int(base.load(fromByteOffset: off, as: UInt32.self))
+            case "i": v = Int(base.load(fromByteOffset: off, as: Int32.self))
+            case "C": v = Int(base.load(fromByteOffset: off, as: UInt8.self))
+            case "c": v = Int(base.load(fromByteOffset: off, as: Int8.self))
+            case "S": v = Int(base.load(fromByteOffset: off, as: UInt16.self))
+            case "s": v = Int(base.load(fromByteOffset: off, as: Int16.self))
+            case "Q", "q": v = Int(base.load(fromByteOffset: off, as: Int64.self))
+            default: continue
+            }
+            out.append("\(name.dropFirst())=\(v)")
+        }
+        return out.isEmpty ? " ids=none" : " ids=[" + out.joined(separator: ",") + "]"
+    }
+
     fileprivate static func record(_ t: UITouch) {
         let p = t.location(in: nil)
         let v = t.view.map { String(describing: type(of: $0)) } ?? "nil"
@@ -58,7 +82,7 @@ enum TouchClock {
             }
             downAt[ObjectIdentifier(t)] = (ms, p)
             if downAt.count > 40 { downAt.removeAll() }
-            InkDiag.shared.log("touch began \(kind) t=\(ms) recv=\(recv) at \(rec.1),\(rec.2) view=\(v)")
+            InkDiag.shared.log("touch began \(kind) t=\(ms) recv=\(recv) at \(rec.1),\(rec.2) view=\(v)\(ids(t))")
         case .moved:
             if let d = downAt.removeValue(forKey: ObjectIdentifier(t)) {
                 InkDiag.shared.log("touch first move \(kind) +\(ms - d.0)ms after down, moved \(Int(hypot(p.x - d.1.x, p.y - d.1.y)))pt at \(rec.1),\(rec.2)")
@@ -70,7 +94,7 @@ enum TouchClock {
             InkDiag.shared.log("touch \(t.phase == .ended ? "ended" : "cancelled") \(kind) t=\(ms) recv=\(recv) at \(rec.1),\(rec.2) view=\(v)")
             if t.phase == .cancelled {
                 cancelled += 1
-                let line = "native touch cancelled #\(cancelled) \(kind) t=\(ms) at \(rec.1),\(rec.2) view=\(v) gate=\(gateState(t)) grs=[\(grs(t))]"
+                let line = "native touch cancelled #\(cancelled) \(kind) t=\(ms) at \(rec.1),\(rec.2) view=\(v)\(ids(t)) gate=\(gateState(t)) grs=[\(grs(t))]"
                 InkDiag.shared.log(line)
                 if ShotMode.isOn { ShotMode.hostWrite(".cancel.log", line, append: true) }
             }
