@@ -93,7 +93,7 @@ RC=$?
 
 # 系统日志里和手势、取消有关的（SpringBoard、backboardd、App 进程里 UIKit 的），对"触摸被系统收走"用：哪个系统手势认出来了
 xcrun simctl spawn "$UDID" log show --last 120m --style compact --info --debug \
-  --predicate '(process == "SpringBoard" OR process == "backboardd" OR process == "Board2Shell") AND (eventMessage CONTAINS[c] "gesture" OR eventMessage CONTAINS[c] "cancel" OR eventMessage CONTAINS "b2clock")' \
+  --predicate '(subsystem == "com.apple.WebKit" AND category == "ViewGestures") OR ((process == "SpringBoard" OR process == "backboardd" OR process == "Board2Shell") AND (eventMessage CONTAINS[c] "gesture" OR eventMessage CONTAINS[c] "cancel" OR eventMessage CONTAINS "b2clock"))' \
   > "$OUT/system-gestures-full.log" 2>/dev/null || true
 
 # 窗口模式整套：iPadOS 26 用户也能把 App 开成窗口。恢复 r18–r21 那种设置（只关 Chamois 等三个键、不写 Medusa——那几轮竖屏都是窗口），
@@ -111,7 +111,7 @@ TEST_RUNNER_B2_INK_WINDOWED=1 xcodebuild test-without-building "${COMMON[@]}" -o
 RC_INKW=$?
 # 系统日志里和手势、取消有关的（SpringBoard、backboardd、App 进程里 UIKit 的），对"触摸被系统收走"用：哪个系统手势认出来了
 xcrun simctl spawn "$UDID" log show --last 120m --style compact --info --debug \
-  --predicate '(process == "SpringBoard" OR process == "backboardd" OR process == "Board2Shell") AND (eventMessage CONTAINS[c] "gesture" OR eventMessage CONTAINS[c] "cancel" OR eventMessage CONTAINS "b2clock")' \
+  --predicate '(subsystem == "com.apple.WebKit" AND category == "ViewGestures") OR ((process == "SpringBoard" OR process == "backboardd" OR process == "Board2Shell") AND (eventMessage CONTAINS[c] "gesture" OR eventMessage CONTAINS[c] "cancel" OR eventMessage CONTAINS "b2clock"))' \
   > "$OUT/system-gestures-windowed.log" 2>/dev/null || true
 set +e
 

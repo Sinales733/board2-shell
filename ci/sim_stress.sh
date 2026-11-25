@@ -47,7 +47,7 @@ RC=$?
 kill "$STUB" 2>/dev/null
 cp -R "$HOME/b2shots/." "$OUT/" 2>/dev/null || echo "没有输出（~/b2shots 不在）"
 xcrun simctl spawn "$UDID" log show --last 150m --style compact --info --debug \
-  --predicate '(process == "SpringBoard" OR process == "backboardd" OR process == "Board2Shell") AND (eventMessage CONTAINS[c] "gesture" OR eventMessage CONTAINS[c] "cancel" OR eventMessage CONTAINS "b2clock" OR eventMessage CONTAINS[c] "digitizer")' \
+  --predicate '(subsystem == "com.apple.WebKit" AND category == "ViewGestures") OR ((process == "SpringBoard" OR process == "backboardd" OR process == "Board2Shell") AND (eventMessage CONTAINS[c] "gesture" OR eventMessage CONTAINS[c] "cancel" OR eventMessage CONTAINS "b2clock" OR eventMessage CONTAINS[c] "digitizer"))' \
   > "$OUT/system-gestures-stress.log" 2>/dev/null || true
 echo "xcodebuild test exit: $RC"
 echo "===== 主线程卡顿归类 ====="; python3 ci/classify_stalls.py "$OUT" || true

@@ -5,6 +5,7 @@
    XCUITest 的 App 内代理（XCTAutomationSupport / XCTest）或无障碍查询（Accessibility、AXRuntime）→ 测试环境；
    PencilKit、WebKit、键盘（UIKeyboard / TextInput）、编辑菜单（UIEditMenu）、剪贴板（Pasteboard）→ 各记各的；
    栈里第一帧是 App 自己的函数 → "App: 函数名"；抓到时主线程已经空闲（mach_msg 等）→ 没抓到现场。
+   落在主动造取消那两段标记（press-interrupted / interrupt-return-foreground：测试让别的 App 到前台、再切回来）里的 → 测试环境，栈的类别跟在后面；
 2. 没有栈：after 后面有名字 → "App: 名字"；落在测试动作（<名字>.testmarks.log）时段里 → "测试环境: XCUITest 动作期间"；否则未归类。
 输出每类次数、最长，写 <输出目录>/stalls.json。
 """
@@ -38,7 +39,7 @@ def by_stack(frames):
             return "键盘那一套"
         if f.startswith("WebKit:"):
             return "WebKit: " + f.split(":", 1)[-1][:50]
-        if f.startswith("Board2Shell:") and "StallSampler" not in f and "MainWatch" not in f:
+        if f.startswith("Board2Shell:") and "StallSampler" not in f and "MainWatch" not in f and f != "Board2Shell:main":   # main 是入口，栈底都有
             return "App: " + f.split(":", 1)[-1][:70]
     return "其他: " + top.split(":", 1)[-1][:50]
 
@@ -71,6 +72,9 @@ for f in sorted(glob.glob(os.path.join(out, "*.ink.log"))):
         st = stacks.get(s) or next((v for k, v in stacks.items() if abs(k - s) <= 300), None)
         if st:
             c = by_stack(st)
+        # 主动造取消：测试让宿主机打开设置 App、App 被切到后台再回来（标记 press-interrupted / interrupt-return-foreground）
+        if any(ms < e and me > s for ms, me, w in marks if w in ("press-interrupted", "interrupt-return-foreground")):
+            c = "测试环境: 主动造取消（App 被切到后台再回来）——" + (c or "没抓到栈")
         if not c:
             if a != "-":
                 c = "App: " + a

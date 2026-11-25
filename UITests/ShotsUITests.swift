@@ -716,7 +716,7 @@ final class ShotsUITests: XCTestCase {
             try? "1".write(to: outDir.appendingPathComponent("interrupt.arm"), atomically: true, encoding: .utf8)
             if let c = center(wbtn("pen")) { mark("press-interrupted") { at(c.0, c.1).press(forDuration: 12.0) } }
             try? FileManager.default.removeItem(at: outDir.appendingPathComponent("interrupt.arm"))
-            app.activate(); settle(2.5)
+            mark("interrupt-return-foreground") { app.activate(); settle(2.5) }   // 被切到后台以后回前台这一段也标上（卡顿归类用）
             let newL = Array(cancelLines().dropFirst(before))
             setupCancels += newL   // 测试自己造的取消：单独记，不算进"不许有被取消的触摸"
             let gotCancel = newL.contains { $0.hasPrefix("native touch cancelled") }

@@ -233,7 +233,7 @@
   if (NI()) {
     const P = window.__b2perf = { gaps: [], slow: [] }; let beat = performance.now(), bt = 0;
     /* 只在草稿纸开着时打拍（open / close 里开关） */
-    P.start = () => { if (bt) return; beat = performance.now(); bt = setInterval(() => { const n = performance.now(); if (n - beat > 250) { const g = Math.round(performance.timeOrigin + beat) + '+' + Math.round(n - beat); P.gaps.push(g); if (P.gaps.length > 12) P.gaps.shift(); if (window.__b2shotmode) try { window.webkit.messageHandlers.b2shell.postMessage({ k: 'clicklog', v: 'web main blocked ' + g }); } catch (e) {} } beat = n; }, 50); };
+    P.start = () => { if (bt) return; beat = performance.now(); bt = setInterval(() => { const n = performance.now(); const gp = n - beat; if (gp > 250 || (window.__b2shotmode && gp > 100)) { const g = Math.round(performance.timeOrigin + beat) + '+' + Math.round(gp); if (gp > 250) { P.gaps.push(g); if (P.gaps.length > 12) P.gaps.shift(); } if (window.__b2shotmode) try { window.webkit.messageHandlers.b2shell.postMessage({ k: 'clicklog', v: 'web main blocked ' + g }); } catch (e) {} } beat = n; }, 50); };
     P.stop = () => { clearInterval(bt); bt = 0; };
     if (window.__b2shotmode) P.start();   // 云端测试（截图模式）：草稿纸收着也打拍，查"收起后第一下点页面晚"这类事（平时只在开着时跑）
     P.stop0 = P.stop; if (window.__b2shotmode) P.stop = () => {};
