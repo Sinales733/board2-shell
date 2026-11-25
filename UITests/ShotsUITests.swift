@@ -429,25 +429,6 @@ final class ShotsUITests: XCTestCase {
         let c6 = count()
         tool1("undo", "toolbar undo removes last stroke", keepsCount: false) { waitCount(c6 - 1, 1) == c6 - 1 }
 
-        // ---- 主动造取消：按住"笔"不放的时候，宿主机把"设置" App 开到前台（ci/sim_shots.sh 里的 interrupt.req 看门），系统收走这一下；
-        //      回来以后：这一下没被算成点击、工具条上没有残留的按下、同一个按钮点一下就生效（1.7"点不动"那一类状态残留）----
-        do {
-            let before = cancelLines().count, act0 = lastTap()["act"] as? Int ?? 0
-            // 上弦：App 在这一下按下的那一刻请宿主机打开设置 App（XCUITest 按下前自己要先等一两秒，所以不能由测试这边掐时间）
-            try? "1".write(to: outDir.appendingPathComponent("interrupt.arm"), atomically: true, encoding: .utf8)
-            if let c = center(wbtn("pen")) { mark("press-interrupted") { at(c.0, c.1).press(forDuration: 5.0) } }
-            try? FileManager.default.removeItem(at: outDir.appendingPathComponent("interrupt.arm"))
-            app.activate(); settle(2.5)
-            let newL = Array(cancelLines().dropFirst(before))
-            setupCancels += newL   // 测试自己造的取消：单独记，不算进"不许有被取消的触摸"
-            let gotCancel = newL.contains { $0.hasPrefix("native touch cancelled") }
-            let noAct = (lastTap()["act"] as? Int ?? 0) == act0
-            let td = web()["toolDown"] as? [String: Any] ?? [:]
-            let clean = (td["down"] as? Bool) == false && (td["touchPending"] as? Bool) == false
-            step("system takes a held press (another app opened): cancelled, not clicked, no stuck press", gotCancel && noAct && clean && isOpen(),
-                 "cancel lines=\(newL.count) \(newL.first.map { String($0.prefix(160)) } ?? "none") clicked=\(!noAct) toolbar state=\(td) open=\(isOpen())")
-            tool1("pen", "after a cancelled press: same button works with one tap") { tool().hasPrefix("ink") }
-        }
 
         // ---- 只认笔（真机规则）：手指点工具条、点纸、挪纸、缩放 ----
         cmd("finger auto")
@@ -726,6 +707,27 @@ final class ShotsUITests: XCTestCase {
         let logged = (native()["pencilLogged"] as? Bool) == true
         step("pencil double tap handler: switches once, toolbar follows, logged", tb != ta && tool().hasPrefix(ta == "eraser" ? "eraser" : "ink") && logged,
              "web tool \(tb)->\(ta) native=\(tool())")
+        restore()
+        // ---- 主动造取消（放在最后：打开别的 App 会让窗口模式下的窗口挪位置，放前面会连累后面的步骤，r38 窗口竖屏）：按住"笔"不放的时候，宿主机把"设置" App 开到前台（ci/sim_shots.sh 里的 interrupt.req 看门），系统收走这一下；
+        //      回来以后：这一下没被算成点击、工具条上没有残留的按下、同一个按钮点一下就生效（1.7"点不动"那一类状态残留）----
+        do {
+            let before = cancelLines().count, act0 = lastTap()["act"] as? Int ?? 0
+            // 上弦：App 在这一下按下的那一刻请宿主机打开设置 App（XCUITest 按下前自己要先等一两秒，所以不能由测试这边掐时间；simctl 打开设置 App 要 3–7 秒，按住 12 秒）
+            try? "1".write(to: outDir.appendingPathComponent("interrupt.arm"), atomically: true, encoding: .utf8)
+            if let c = center(wbtn("pen")) { mark("press-interrupted") { at(c.0, c.1).press(forDuration: 12.0) } }
+            try? FileManager.default.removeItem(at: outDir.appendingPathComponent("interrupt.arm"))
+            app.activate(); settle(2.5)
+            let newL = Array(cancelLines().dropFirst(before))
+            setupCancels += newL   // 测试自己造的取消：单独记，不算进"不许有被取消的触摸"
+            let gotCancel = newL.contains { $0.hasPrefix("native touch cancelled") }
+            let noAct = (lastTap()["act"] as? Int ?? 0) == act0
+            let td = web()["toolDown"] as? [String: Any] ?? [:]
+            let clean = (td["down"] as? Bool) == false && (td["touchPending"] as? Bool) == false
+            step("system takes a held press (another app opened): cancelled, not clicked, no stuck press", gotCancel && noAct && clean && isOpen(),
+                 "cancel lines=\(newL.count) \(newL.first.map { String($0.prefix(160)) } ?? "none") clicked=\(!noAct) toolbar state=\(td) open=\(isOpen())")
+            tool1("pen", "after a cancelled press: same button works with one tap") { tool().hasPrefix("ink") }
+        }
+
         // 主线程 ≥250ms 卡顿：次数、最长
         let il = ((try? String(contentsOf: outDir.appendingPathComponent(name + ".ink.log"), encoding: .utf8)) ?? "").split(separator: "\n")
         let gaps = il.compactMap { l -> Int? in

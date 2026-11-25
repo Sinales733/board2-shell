@@ -19,8 +19,6 @@ color red right after opening palette
 red stroke
 new stroke is red
 toolbar undo removes last stroke
-system takes a held press (another app opened): cancelled, not clicked, no stuck press
-after a cancelled press: same button works with one tap
 pencilOnly by default
 finger tap on toolbar under pencilOnly
 finger tap pen under pencilOnly
@@ -93,3 +91,5 @@ rotate while open: strokes kept, button and toolbar on screen
 stroke after rotate
 pencil double tap handler: switches once, toolbar follows, logged
 no cancelled touches (native touchesCancelled, web pointercancel/touchcancel)
+system takes a held press (another app opened): cancelled, not clicked, no stuck press
+after a cancelled press: same button works with one tap
